@@ -49,10 +49,9 @@ silicon and Intel runners. It has been supplied but not executed remotely here.
 
 Portable/Full optional components and inference tests, Windows seeding/process
 handoff, musl runtime dependencies, minimal-host compatibility certification,
-full upstream embedded-license audit, notarization/signing identities, release
-mirroring and publication remain unimplemented. Lite's ordinary optional
-on-demand installation is preserved, but successful optional downloads were
-not exercised. No paid model requests were used.
+full upstream embedded-license audit, and notarization/signing identities remain
+unimplemented. Lite's ordinary on-demand installation is preserved, but successful
+optional downloads were not exercised. No paid model requests were used.
 
 ## Final cross-target check results
 
@@ -64,3 +63,27 @@ was used only for development validation; Mac users build with Apple's native
 compiler and do not need Zig. These were **type checks, not native executable
 link/sign/run tests**. The supplied build path performs the remaining checks on
 macOS. The native Linux run and all 30 Rust/Python tests passed locally.
+
+## Release workflow validation
+
+The scheduled Lite release workflow passed its preparation and Linux ARM64 build
+jobs locally under `act` on an ARM64 Docker engine using
+`catthehacker/ubuntu:act-24.04`. Publication was disabled. This exercised upstream
+discovery, reviewed-source verification, lock upload/download, Rust 1.98.1
+installation, formatting, Clippy, eight Rust tests, the native release build,
+19 strict offline real-OMP checks, 22 Python tests, and artifact upload.
+
+The official Linux ARM64 binary was cached through GitHub's asset API after slow
+downloads. Its pinned SHA-256 was verified before copying it into the container;
+the builder independently verified the cache. The uploaded binary and its three
+sidecars were recovered locally and their checksum was verified.
+
+`actionlint` passed both workflows. Throwaway publication-validator checks
+accepted a complete fixture matrix and rejected a missing platform, failed smoke
+report, and mismatched real binary checksum. Discovery checks covered skipping
+an existing published release and rejecting changed reviewed source bytes without
+altering the lock. These fixture checks are not native tests of the other targets.
+
+No GitHub release was created. Hosted-runner behavior for the other three targets,
+GitHub token permissions, and actual draft/upload/publication still require the
+first remote run. Scheduling requires the workflow on the default branch.

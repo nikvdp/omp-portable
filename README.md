@@ -114,6 +114,32 @@ See [docs/VALIDATION.md](docs/VALIDATION.md) for the evidence and limits, and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the macOS container design.
 The native Mac workflow is supplied but was not run from this Linux session.
 
+## Automated Lite releases
+
+`.github/workflows/release.yml` checks the latest stable upstream release hourly
+and can also be run from Actions using **Release OMP Lite**. Push the workflow
+to the repository's default branch and enable Actions. No personal access token
+is needed on GitHub; only the publication job receives `contents: write`.
+
+The workflow resolves upstream asset hashes from GitHub and checks the five
+reviewed source files against the checked-in lock. If any reviewed file changes,
+the run fails with `Review required`; review and update the lock before retrying.
+It tracks the latest stable release, not every historical release.
+
+All four native Lite builds must pass Rust checks, strict offline smoke tests,
+and extraction tests before publication. The final job verifies the full set
+of binaries, checksums, manifests, and build reports, uploads them to a draft
+release, then publishes `omp-v<upstream-version>`. Already published versions
+are skipped; interrupted draft uploads can be retried. Portable/Full and
+Windows/musl are not published.
+
+For a GitHub dry run, clear the manual workflow's `publish` checkbox. This still
+builds and uploads workflow artifacts but does not create a release.
+The Linux ARM64 preparation/build/upload path has also passed locally with
+`act`, using `catthehacker/ubuntu:act-24.04` and publication disabled.
+Actual GitHub publication and the other three hosted runners still need their
+first remote run.
+
 ## Git history
 
 This is an ordinary Git repository. The new bundle contains the original commits

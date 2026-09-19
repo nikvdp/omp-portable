@@ -96,15 +96,19 @@ allowing local worker sockets. Every smoke run first proves that a loopback
 connection receives a permission denial; missing or ineffective network guards
 fail the test. Dead proxies are not used as evidence of offline operation.
 
-The supplied workflow runs all four native hosts, including codesigning and
-real OMP smoke tests on both Macs. It is not a release publisher. No workflow
-has been run remotely in this session.
+The verification workflow runs all four native hosts, including codesigning and
+real OMP smoke tests on both Macs. The release workflow polls upstream hourly,
+passes one resolved lock to all four builds, and publishes only after every
+build and the complete-artifact checksum gate pass. Publication uses a draft
+release so interrupted uploads do not expose an incomplete release.
 
 ## Upstream and license review
 
 The lock records release ID, hashes/sizes and reviewed source files covering
 cache/profile resolution, updater routing, embedded addon extraction and Linux
-file locking. New tags require a fresh review. Release LICENSE, the downstream
+file locking. New tags can reuse that review only when all reviewed source hashes
+remain identical; a changed file stops release preparation for human review.
+Release LICENSE, the downstream
 license, and notices from locked Cargo dependency sources are included. Unknown
 Cargo license expressions fail builds. A full audit of every dependency compiled
 inside upstream's binary remains a requirement before public release publication.
