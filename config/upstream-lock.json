@@ -2,12 +2,6 @@
   "repo": "can1357/oh-my-pi",
   "tag": "v18.2.6",
   "release_id": 391682356,
-  "asset": {
-    "name": "omp-linux-x64",
-    "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.2.6/omp-linux-x64",
-    "sha256": "0f38598c91e823d8cce07f151ec3999d51f213fb2cc3e07d89f1af8eef9247a2",
-    "size": 252405216
-  },
   "license": {
     "name": "LICENSE",
     "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.2.6/LICENSE",
@@ -40,5 +34,31 @@
       "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.2.6/crates/pi-natives/src/file_lock/linux.rs",
       "sha256": "9cc279aa489ef2f2e45d8738a8600d9120e9138e86893412835122896b16ff29"
     }
-  ]
+  ],
+  "assets": {
+    "darwin-arm64": {
+      "name": "omp-darwin-arm64",
+      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.2.6/omp-darwin-arm64",
+      "sha256": "d498da40d577e1ffa681ca8632c2ea40a9f722a08b880412011d37dffee9513a",
+      "size": 187226128
+    },
+    "darwin-x64": {
+      "name": "omp-darwin-x64",
+      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.2.6/omp-darwin-x64",
+      "sha256": "d558800fa326abc68ae3cbbb3e536322ec643bdcfddc71e6a988857dbe1a94a3",
+      "size": 195634096
+    },
+    "linux-x64": {
+      "name": "omp-linux-x64",
+      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.2.6/omp-linux-x64",
+      "sha256": "0f38598c91e823d8cce07f151ec3999d51f213fb2cc3e07d89f1af8eef9247a2",
+      "size": 252405216
+    },
+    "linux-arm64": {
+      "name": "omp-linux-arm64",
+      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.2.6/omp-linux-arm64",
+      "sha256": "07245cbe050c3999ab5cea9babfe84e7e8819d2f4d5e49bef47c0aacb6b957e4",
+      "size": 208390440
+    }
+  }
 }

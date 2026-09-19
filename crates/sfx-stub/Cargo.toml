@@ -11,3 +11,4 @@ zstd = { workspace = true }
 serde_json = { workspace = true }
 fs2 = { workspace = true }
 sfx-format = { path = "../sfx-format" }
+libc = { workspace = true }

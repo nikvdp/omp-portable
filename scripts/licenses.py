@@ -16,7 +16,7 @@ REVIEWED = {
 }
 
 
-def collect(root, stage):
+def collect(root, stage, rust_target, env):
     meta = json.loads(
         subprocess.check_output(
             [
@@ -25,11 +25,12 @@ def collect(root, stage):
                 "--locked",
                 "--offline",
                 "--filter-platform",
-                "x86_64-unknown-linux-gnu",
+                rust_target,
                 "--format-version",
                 "1",
             ],
             cwd=root,
+            env=env,
             text=True,
         )
     )

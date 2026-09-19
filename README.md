@@ -1,64 +1,124 @@
-# omp-portable
+# Cross-platform OMP single-file builder
 
-Linux x64 Lite milestone: a single native self-extracting executable containing
-an unmodified official OMP binary. No installed OMP, Bun, Node, Python, tar,
-or zstd command is required to launch it. Python and Rust are build tools only.
+Build a native, self-extracting OMP executable **on macOS or Linux**. The builder
+automatically detects Apple silicon, Intel Mac, Linux x64, or Linux Arm64 and
+bundles the matching official OMP release. It does not rebuild or modify OMP.
 
-This is **not the complete multi-platform Portable/Full release mirror**.
-Only Linux x64 Lite is implemented. No scheduled publication is enabled.
+## Build on your Mac
 
-## Build
-
-Prerequisites: Linux x64, Rust/Cargo, a C compiler (for the zstd library),
-Python 3.11+, Git and HTTPS access to GitHub/crates.io.
+Clone the new bundle into a new directory (it contains the original history):
 
 ```sh
-python3 scripts/build-lite.py
-python3 -m unittest discover -s tests -v
-python3 scripts/smoke.py dist/omp-lite-18.2.6-linux-x64
+git clone omp-portable-cross-platform.bundle omp-portable
+cd omp-portable
 ```
 
-The checked-in upstream lock pins the reviewed release, binary digest, license,
-and relevant source files. Unknown tags cannot silently inherit reviewed
-assumptions. Review and update the lock before adopting another version.
-`Cargo.lock` pins the downstream dependency graph.
-
-## Run
+You need Python **3.11+**, Rust/Cargo, and Apple's command-line developer tools.
+If you already have these, skip installation. With Homebrew:
 
 ```sh
-chmod +x omp-lite-18.2.6-linux-x64
-./omp-lite-18.2.6-linux-x64 --version
-./omp-lite-18.2.6-linux-x64
+xcode-select --install   # only if Apple's command-line tools are missing
+brew install python rust
 ```
 
-First launch verifies and streams the payload into
-`${XDG_CACHE_HOME:-$HOME/.cache}/omp-portable/dist/<payload-sha256>/`.
-Later launches validate and reuse that directory. Each launch checks the
-compressed payload and all immutable components; this trades some startup I/O
-for corruption detection. It never loads the whole payload into memory.
+Finish the Apple tools installation before building. Homebrew is just a way to
+install build prerequisites; it is not used by the resulting executable.
+Rust installed through rustup also works; the builder checks `~/.cargo/bin`.
+Then run:
 
-Normal HOME, configuration, credentials, sessions, and plugins remain visible.
-The launcher changes only PATH and XDG_CACHE_HOME for its child. Subprocesses
-inherit that private cache root. The private native `omp` command always starts
-this distribution. All `omp update` variants are intercepted, including
-`--plugins` and `--check`. Download a newer downstream artifact to update.
+```sh
+./build.sh
+./dist/omp-lite --version
+./dist/omp-lite
+```
 
-Optional OMP features not bundled in Lite can still download/install their
-normal dependencies on first use. Lite contains no optional model weights,
-browser, Python, yt-dlp or trafilatura. Embedded upstream native code may extract
-into the normal OMP home. Lite is not an offline edition for optional features.
+**That is the same command on Apple silicon and Intel.** No architecture flag
+is required. Use an ordinary native terminal/Python on Apple silicon; a Python
+running through Rosetta identifies itself as Intel and builds the Intel target.
 
-If immutable extracted files are corrupt, launch fails closed. Remove only the
-reported distribution cache and retry; do not remove your normal `.omp` home.
-Private runtime caches inside that distribution may contain on-demand downloads.
+The first build downloads the pinned official OMP binary and Rust dependencies,
+compiles the launcher, embeds the payload, ad-hoc signs the outer Mac executable,
+checks its signature, and runs the finished artifact from a temporary directory
+with fresh state and outbound network access blocked. No developer signing
+account is needed for ad-hoc signing. This is not Apple notarization.
 
-## Scope and export
+Output is `dist/omp-lite-18.2.6-darwin-arm64` or
+`dist/omp-lite-18.2.6-darwin-x64`. `dist/omp-lite` points to the latest successful
+native build. Copy the **versioned file** to another Mac of the same architecture.
+The destination needs no Rust, Python, Node, Bun, or installed OMP to launch it.
+If sharing through a service that strips executable permissions, restore them
+with `chmod +x <filename>`. Normal macOS quarantine rules still apply to files
+transferred from the Internet.
 
-See [docs/VALIDATION.md](docs/VALIDATION.md) for actual tests and limitations,
-and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the format and roadmap.
-This repository uses local commits and can be exported with history:
+## Linux
+
+Install Python 3.11+, Rust/Cargo, a C compiler and Git, then use the same
+`./build.sh` and `./dist/omp-lite` commands. The builder supports native glibc
+Linux x64/Arm64 hosts. It does not label musl/Alpine supported.
+
+## What is bundled
+
+The currently implemented **Lite edition** contains official OMP, the native
+extractor/update-protecting launcher, manifest and license notices. Ordinary
+optional OMP features retain their normal on-demand dependency installation.
+A bundled browser, speech models and embedding models belong to the planned
+Portable/Full editions and are not claimed by this build.
+
+| Build host | Native output | Verification in this session |
+| --- | --- | --- |
+| Apple silicon Mac | darwin-arm64 | Rust cross-target type check passed; native run still needed |
+| Intel Mac | darwin-x64 | Rust cross-target type check passed; native run still needed |
+| Linux x64 | linux-x64 | Full local build and offline smoke tests |
+| Linux Arm64 | linux-arm64 | Implemented; native run still needed |
+
+Windows and musl need their own launcher/runtime work and are rejected clearly.
+One portable file is produced **per operating system and architecture**.
+
+## Runtime behavior
+
+First launch verifies and streams the embedded archive into a private cache:
+
+- macOS: `$HOME/Library/Caches/omp-portable/dist/<payload-sha256>/`
+- Linux: `${XDG_CACHE_HOME:-$HOME/.cache}/omp-portable/dist/<payload-sha256>/`
+
+Subsequent launches verify and reuse it. Normal HOME, configuration, credentials,
+sessions and plugins remain visible. Only child PATH and XDG_CACHE_HOME are
+changed. Subprocesses inherit the private cache; the private `omp` shim always
+starts this distribution. All `omp update` variants are intercepted; rebuild
+with a reviewed newer upstream lock to update. Nothing replaces global OMP.
+
+## Inspect and diagnose
+
+```sh
+./build.sh --plan                    # no download or build
+./build.sh --strict-host             # require upstream config writes too
+python3 -m unittest discover -s tests -v   # after a native build
+```
+
+Each build writes `build/<target>/build-plan.json`,
+`build/<target>/smoke-results.json`, plus per-artifact `.build.json`,
+`.manifest.json` and `.sha256` sidecars under `dist/`.
+
+A failed smoke test makes the build command fail. The candidate is
+left under `build/<target>/candidate/` for diagnosis and its `.build.json` says
+`smoke: failed`; existing files under `dist/` are preserved. `--skip-smoke` explicitly skips
+verification and is never used by the native verification workflow.
+`--skip-compile` reuses target-scoped tools; normal builds do not need either flag.
+
+The local Linux sandbox denies the abstract Unix socket operation that upstream
+uses for configuration-write locks. Normal smoke mode records that exact error
+only when the unwrapped official binary reproduces it. `--strict-host`, used by
+the four-target workflow, treats it as a failure. Mac failures are never waived.
+
+See [docs/VALIDATION.md](docs/VALIDATION.md) for the evidence and limits, and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the macOS container design.
+The native Mac workflow is supplied but was not run from this Linux session.
+
+## Git history
+
+This is an ordinary Git repository. The new bundle contains the original commits
+and the cross-platform changes. Export it later with:
 
 ```sh
 git bundle create omp-portable.bundle --all
-git clone omp-portable.bundle omp-portable
 ```

@@ -1,100 +1,110 @@
-# Linux x64 Lite architecture
+# Native Linux/macOS builder
 
-## Scope
+## Platform selection
 
-This implements the first OMP milestone and the Linux subset of the generic
-self-extracting executable milestone. Portable, Full, Windows, macOS, musl,
-and automated release mirroring are intentionally not advertised or enabled.
-The user-facing launcher is Rust; Python is build/test orchestration only.
+`config/targets.json` maps supported native hosts to a Rust target triple, exact
+upstream asset name, payload container and verification runner. The single
+`build.sh` / `scripts/build.py` entry point detects the current process platform,
+resolves a data-driven plan, and builds with an explicit Rust target. Each
+platform has its own staging and Cargo output paths. Cross-building is rejected;
+optional components will also need native build/test environments.
 
-## File format version 1
+The upstream lock retains one reviewed release and four official binary hashes:
+Linux x64/Arm64 and macOS Intel/Apple silicon. Assets and reviewed upstream source
+files are verified before use. The official executable remains byte-identical.
+The current payload edition is Lite. Portable/Full component prewarming and
+Windows/musl support remain separate unfinished work, not aliases for Lite.
 
-All integers are little-endian. The last 64 bytes contain:
+## Payload format
 
-| Offset | Length | Meaning |
+A compressed tar stream is followed by a 64-byte footer. Integer fields are
+little-endian:
+
+| Offset | Size | Meaning |
 | --- | --- | --- |
 | 0 | 8 | `OMPSFX01` |
-| 8 | 4 | Format version, 1 |
-| 12 | 4 | Manifest schema, 1 |
-| 16 | 8 | Payload byte offset |
-| 24 | 8 | Compressed payload length |
-| 32 | 32 | SHA-256 of compressed payload |
+| 8 | 4 | Format version 1 |
+| 12 | 4 | Manifest schema 1 |
+| 16 | 8 | Payload offset relative to the selected container |
+| 24 | 8 | Compressed byte length |
+| 32 | 32 | Compressed payload SHA-256 |
 
-Before the footer: native launcher, then a zstd-compressed tar stream.
-The footer bounds must exactly match the file length. Extraction hashes the
-bounded compressed stream, seeks back, and streams zstd/tar into a temporary
-directory. Hash buffers are 128 KiB; no whole-payload allocation is used.
+**Linux:** the container is the entire ELF file, with launcher, compressed data,
+then fixed footer at EOF. This preserves the original Linux artifact format.
 
-Version 1 permits regular files only. Absolute paths, parent traversal,
-symlinks, hardlinks, duplicate entries, unlisted files and reserved READY paths
-are rejected. Headers and file records specify normalized executable modes.
-The packer produces a sorted archive with zero timestamps/owner IDs. The same
-stub and staging bytes produce identical artifacts.
+**macOS:** the native linker creates `__OMP,__payload` from the compressed data
+and footer. The footer's relative offset is zero. The launcher reads Mach-O's
+bounded load-command table to locate that exact section, reads its footer, then
+streams from the section's absolute file offset. It never scans executable bytes
+for magic markers. Both supported Mac targets use thin little-endian Mach-O 64.
 
-## Extraction and launch
+Embedding inside a regular, read-only Mach-O section lets the normal linker and
+`codesign` account for the payload. Appending arbitrary data after an existing
+Mac signature would not provide this guarantee. The outer launcher is ad-hoc
+signed **after** linking; the builder runs `codesign --verify --strict` before
+smoke testing. Signature bytes may follow the payload section. The loader uses
+section bounds, not physical EOF, on Mac. Synthetic signed-tail, missing-section,
+malformed-command and out-of-bounds fixtures exercise the parser on Linux.
 
-A per-digest `flock` serializes extraction. The cache is mode 0700. Stale
-temporary directories for that digest are cleaned under the lock. Component
-hashes and executable permissions are checked, files are synchronized, READY
-is written, then the temporary directory is atomically renamed. The lock is
-released before executing OMP. Failed extraction never creates a valid cache.
-Interrupted packer output uses a process-specific partial filename.
+The embedded Mac launcher is linked in a separate Cargo target directory so it
+cannot become the next build's shim and recursively accumulate old payloads.
+`launcher-bin/omp` is the small standalone launcher; it is signed before its
+hash is recorded. Upstream OMP is never re-signed or otherwise modified.
+The format permits lazy virtual-memory mapping of the payload but extraction
+reads through bounded file streams; it does not allocate the archive in RAM.
 
-Reuse verifies READY and immutable file hashes. Corrupt existing distributions
-fail closed; they are not automatically deleted because their mutable caches
-may contain user-triggered downloads. SHA-256 detects corruption; this is not
-a signed artifact or a defense against a malicious process running as the user.
+## Extraction and execution
 
-The same native stub without its payload is installed as `launcher-bin/omp`.
-It derives the distribution root from its executable path, validates components,
-then directly executes `bin/omp.real`. It never resolves host `omp`.
-Both entry points block the first upstream `update` subcommand, including when
-preceded by profile selectors. No update variant is passed through in v1.
-An explicit direct invocation of `bin/omp.real` bypasses this wrapper contract.
+A per-digest flock serializes first extraction. O_NOFOLLOW uses libc's native
+constant rather than a Linux-specific integer. Cache bases are:
 
-Unix process replacement preserves working directory, arguments, standard
-streams, terminal and signals. The environment overlay changes only PATH and
-XDG_CACHE_HOME. It preserves HOME and all OMP data/config/state selectors.
-No helpers are bundled in Lite, so only the launcher directory is prepended.
+- macOS: HOME/Library/Caches/omp-portable/dist
+- Linux: XDG_CACHE_HOME/omp-portable/dist, or HOME/.cache/omp-portable/dist
 
-Profile cache candidates from environment and argv are precreated if their
-names are safe. Upstream retains authority over argument parsing; literal
-`--profile` tool arguments are never rejected by the wrapper. This can create
-an unused empty candidate cache, but never changes user profile state. Lite
-has no model tree to share between profiles. Explicit custom agent-directory
-settings retain upstream's own cache-resolution behavior.
+Files stream into a temporary directory; hashes, permissions and the complete
+manifest file set are checked before READY and an atomic rename. An interrupted
+extraction is recoverable. Reuse validates compressed and extracted bytes.
+Only regular files are accepted: traversal, absolute paths, duplicate records,
+links and unmanifested files fail. The packer normalizes tar owners/timestamps.
+Existing corrupt distribution caches fail closed rather than deleting mutable
+on-demand runtime downloads. Digests detect corruption, not malicious same-user
+modification; public signing identities/notarization are not implemented.
 
-## Exact upstream review: v18.2.6
+The native shim derives the distribution from its own path and never resolves
+host `omp`. Outer and inner entry points block every `update` variant. Unix exec
+preserves arguments, current directory, terminal, streams, signals and exit
+status. The environment overlay changes PATH and XDG_CACHE_HOME only; HOME and
+OMP user-state selectors retain their incoming values. Embedded OMP native
+addons may extract into the ordinary native namespace as upstream intends.
 
-`config/upstream-lock.json` records GitHub's release ID, size, asset digest and
-hashes of reviewed source files. The builder verifies these before packing:
+Profile cache candidates from environment/argv are precreated only for safe
+names. Upstream owns argv parsing; literal profile-looking tool arguments are
+not rejected. No optional cache components are created merely for symmetry.
 
-- `dirs.ts`: XDG cache selection on Linux/macOS requires the appropriate app
-  or profile cache directory. Agent paths flatten under XDG; the handoff's
-  illustrative directory tree must not be used as a permanent contract.
-- `profile-bootstrap.ts`: profile switches can be literal tool arguments;
-  registered subcommands retain their own flag parsing.
-- `update-cli.ts`: updater can resolve the active launcher through PATH;
-  all updater variants are blocked by this milestone.
-- `loader-state.js`: embedded native addons extract to the ordinary OMP
-  native namespace; XDG_DATA_HOME must not be reassigned by this launcher.
+## Builder verification
 
-The official OMP executable is copied byte-for-byte; no recompilation or binary
-patch is performed. Its release license and notices from locked Rust dependency
-sources are included. New/unreviewed dependency license expressions fail builds.
-Upstream's complete compiled third-party dependency audit remains upstream-owned;
-this milestone is not a claim that its release LICENSE enumerates every embedded
-third-party notice. Review that inventory before public redistribution at scale.
+Normal builds pack into a candidate path and run the finished artifact from a
+new directory with fresh HOME and a reduced PATH. A successful candidate is
+promoted into dist; a failed smoke test retains its candidate and leaves the
+previous dist executable untouched. Reports distinguish failure and explicit
+`--skip-smoke` from a passed build. The distribution convenience link is updated
+only after a passed build. Checksums include the final macOS signature bytes.
 
-## Next milestones
+Linux blocks Internet socket creation with seccomp (native x64/Arm64 syscall
+numbers). macOS uses sandbox-exec to deny Internet outbound connections while
+allowing local worker sockets. Every smoke run first proves that a loopback
+connection receives a permission denial; missing or ineffective network guards
+fail the test. Dead proxies are not used as evidence of offline operation.
 
-1. Run strict tests on a clean ordinary Linux host and a minimal container;
-   audit upstream's complete binary notice inventory before public releases.
-2. Expand Lite to native platform runners and implement Windows seeding/handoff.
-3. Add Portable components individually, with real offline inference tests.
-4. Add Full registry discovery, supported-model filtering and deterministic budget.
-5. Add missing-release discovery, resumable drafts and complete-matrix publication.
+The supplied workflow runs all four native hosts, including codesigning and
+real OMP smoke tests on both Macs. It is not a release publisher. No workflow
+has been run remotely in this session.
 
-The checked-in workflow verifies Linux Lite only. It has read-only permissions
-and does not publish. No GitHub repository or workflow run was created remotely
-in this session.
+## Upstream and license review
+
+The lock records release ID, hashes/sizes and reviewed source files covering
+cache/profile resolution, updater routing, embedded addon extraction and Linux
+file locking. New tags require a fresh review. Release LICENSE, the downstream
+license, and notices from locked Cargo dependency sources are included. Unknown
+Cargo license expressions fail builds. A full audit of every dependency compiled
+inside upstream's binary remains a requirement before public release publication.

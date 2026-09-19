@@ -12,10 +12,34 @@ import subprocess
 import tempfile
 import time
 import unittest
+import sys
+import platform
 
 ROOT = Path(__file__).resolve().parents[1]
-STUB = ROOT / "target/release/sfx-stub"
-PACK = ROOT / "target/release/sfx-pack"
+sys.path.insert(0, str(ROOT / "scripts"))
+from platforms import detect_target, cache_base
+from packaging import package, binaries
+
+TARGET = detect_target()
+STUB = binaries(TARGET) / "sfx-stub"
+PACK = binaries(TARGET) / "sfx-pack"
+
+
+def pack_fixture(stage, output, limit):
+    if platform.system() != "Darwin":
+        return subprocess.run(
+            [str(PACK), str(STUB), str(stage), str(output), str(limit)],
+            capture_output=True,
+            text=True,
+            check=limit > 100,
+        )
+    try:
+        package(stage, output, TARGET, limit)
+        return subprocess.CompletedProcess([], 0, "", "")
+    except (subprocess.CalledProcessError, RuntimeError) as e:
+        if limit > 100:
+            raise
+        return subprocess.CompletedProcess([], 1, "", str(e))
 
 
 def sha(p):
@@ -26,6 +50,7 @@ def sha(p):
 class Lifecycle(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        (ROOT / "build").mkdir(exist_ok=True)
         cls.work = tempfile.TemporaryDirectory(dir=ROOT / "build")
         cls.base = Path(cls.work.name)
         cls.stage = cls.base / "stage"
@@ -66,7 +91,7 @@ class Lifecycle(unittest.TestCase):
                 {
                     "schema": 1,
                     "edition": "lite",
-                    "target": "linux-x64",
+                    "target": TARGET,
                     "upstream": {"fixture": True},
                     "builder": {},
                     "files": files,
@@ -76,12 +101,7 @@ class Lifecycle(unittest.TestCase):
 
     @classmethod
     def pack(cls, out, limit=1990000000):
-        return subprocess.run(
-            [str(PACK), str(STUB), str(cls.stage), str(out), str(limit)],
-            capture_output=True,
-            text=True,
-            check=limit > 100,
-        )
+        return pack_fixture(cls.stage, out, limit)
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(dir=self.base)
@@ -112,7 +132,7 @@ class Lifecycle(unittest.TestCase):
         )
 
     def root(self):
-        return next((self.home / ".cache/omp-portable/dist").glob("*/READY")).parent
+        return next(cache_base(self.home, TARGET).glob("*/READY")).parent
 
     def test_extract_reuse_arguments_state(self):
         for key in [
@@ -141,9 +161,7 @@ class Lifecycle(unittest.TestCase):
         self.assertTrue(
             all(p.returncode == 0 for p in results), [p.stderr for p in results]
         )
-        self.assertEqual(
-            len(list((self.home / ".cache/omp-portable/dist").glob("*/READY"))), 1
-        )
+        self.assertEqual(len(list(cache_base(self.home, TARGET).glob("*/READY"))), 1)
 
     def test_updates_and_host_shim(self):
         host = Path(self.env["PATH"]) / "omp"
@@ -220,16 +238,21 @@ class Lifecycle(unittest.TestCase):
         bad = self.dir / "bad"
         shutil.copy2(self.artifact, bad)
         with bad.open("r+b") as f:
-            f.seek(-64, 2)
-            footer = f.read()
-            off = struct.unpack_from("<Q", footer, 16)[0]
+            if platform.system() == "Darwin":
+                # Corrupt a byte in the signed image; macOS may kill it before main.
+                off = 16384
+            else:
+                f.seek(-64, 2)
+                footer = f.read()
+                off = struct.unpack_from("<Q", footer, 16)[0]
             f.seek(off + 10)
             b = f.read(1)
             f.seek(off + 10)
             f.write(bytes([b[0] ^ 1]))
         p = self.run_sfx(exe=bad)
         self.assertNotEqual(p.returncode, 0)
-        self.assertIn("SHA-256 mismatch", p.stderr)
+        if platform.system() != "Darwin":
+            self.assertIn("SHA-256 mismatch", p.stderr)
 
     def test_cached_corruption(self):
         self.run_sfx()
@@ -283,11 +306,7 @@ class Lifecycle(unittest.TestCase):
         }
         (big / "manifest.json").write_text(json.dumps(manifest))
         artifact = self.dir / "large"
-        subprocess.run(
-            [str(PACK), str(STUB), str(big), str(artifact), "1990000000"],
-            check=True,
-            capture_output=True,
-        )
+        pack_fixture(big, artifact, 1990000000)
         p = subprocess.Popen(
             [str(artifact)],
             env=self.env,
@@ -299,9 +318,7 @@ class Lifecycle(unittest.TestCase):
             deadline = time.monotonic() + 10
             detected = False
             while time.monotonic() < deadline and p.poll() is None:
-                if list(
-                    (self.home / ".cache/omp-portable/dist").glob("*.tmp.*/padding")
-                ):
+                if list(cache_base(self.home, TARGET).glob("*.tmp.*/padding")):
                     p.send_signal(signal.SIGSTOP)
                     detected = True
                     break
@@ -309,9 +326,7 @@ class Lifecycle(unittest.TestCase):
             self.assertTrue(detected, "could not interrupt active extraction")
             p.kill()
             p.wait(timeout=5)
-            self.assertFalse(
-                list((self.home / ".cache/omp-portable/dist").glob("*/READY"))
-            )
+            self.assertFalse(list(cache_base(self.home, TARGET).glob("*/READY")))
         finally:
             if p.poll() is None:
                 p.kill()

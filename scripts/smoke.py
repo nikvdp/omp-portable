@@ -11,7 +11,9 @@ import shutil
 import subprocess
 import tempfile
 import time
-from offline import block_network
+import offline
+import sys
+from platforms import detect_target, cache_base
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -24,7 +26,25 @@ def main():
         action="store_true",
         help="Require upstream config writes to work too",
     )
+    ap.add_argument("--report", type=Path, help="Write structured test evidence here")
     args = ap.parse_args()
+    target = detect_target()
+    lock = json.loads((ROOT / "config/upstream-lock.json").read_text())
+    version = lock["tag"].removeprefix("v")
+    (ROOT / "build").mkdir(exist_ok=True)
+    guard_probe = offline.run(
+        [
+            sys.executable,
+            "-c",
+            "import socket; s=socket.socket(); s.connect(('127.0.0.1',9))",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert guard_probe.returncode != 0 and "PermissionError" in guard_probe.stderr, (
+        "Network guard was not enforced",
+        guard_probe.stderr,
+    )
     artifact = args.artifact.resolve()
     checks = []
     with tempfile.TemporaryDirectory(prefix="real-smoke-", dir=ROOT / "build") as temp:
@@ -48,11 +68,10 @@ def main():
         }
 
         def run(*argv, expected=0):
-            p = subprocess.run(
+            p = offline.run(
                 [str(exe), *argv],
                 cwd=cwd,
                 env=env,
-                preexec_fn=block_network,
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -63,7 +82,7 @@ def main():
             )
             return p.stdout
 
-        assert "18.2.6" in run("--version")
+        assert version in run("--version")
         assert "COMMANDS" in run("--help")
         assert "off" in run("config", "get", "memory.backend")
         speech = json.loads(run("setup", "speech", "--check", "--json", expected=1))
@@ -109,23 +128,22 @@ def main():
         assert str(home / ".omp/agent") in run("config", "path")
         del env["OMP_PROFILE"]
         del env["PI_PROFILE"]
-        root = next((home / ".cache/omp-portable/dist").glob("*/READY")).parent
+        root = next(cache_base(home, target).glob("*/READY")).parent
         manifest = json.loads((root / "manifest.json").read_text())
-        write = subprocess.run(
+        write = offline.run(
             [str(exe), "config", "set", "memory.backend", "off"],
             cwd=cwd,
             env=env,
-            preexec_fn=block_network,
             capture_output=True,
             text=True,
             timeout=30,
         )
         if write.returncode:
-            direct = subprocess.run(
+            assert target.startswith("linux-"), write.stderr
+            direct = offline.run(
                 [str(root / "bin/omp.real"), "config", "set", "memory.backend", "off"],
                 cwd=cwd,
                 env=env,
-                preexec_fn=block_network,
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -158,16 +176,15 @@ def main():
             (root / p).exists() for p in ("browser", "helpers", "windows-seed")
         )
         # Direct private shim is the same distribution, even beside a fake host omp.
-        p = subprocess.run(
+        p = offline.run(
             [str(root / "launcher-bin/omp"), "--version"],
             env=env,
             cwd=cwd,
-            preexec_fn=block_network,
             capture_output=True,
             text=True,
             timeout=30,
         )
-        assert p.returncode == 0 and "18.2.6" in p.stdout, (p.stdout, p.stderr)
+        assert p.returncode == 0 and version in p.stdout, (p.stdout, p.stderr)
         checks.append(
             {
                 "command": ["private-shim", "--version"],
@@ -182,7 +199,7 @@ def main():
         env["SHELL"] = "/bin/bash"
         env["OPENAI_API_KEY"] = "offline-test-placeholder-never-sent"
         err = base / "rpc.stderr"
-        with err.open("w") as stderr, subprocess.Popen(
+        with err.open("w") as stderr, offline.popen(
             [
                 str(exe),
                 "--mode",
@@ -198,7 +215,6 @@ def main():
             ],
             cwd=cwd,
             env=env,
-            preexec_fn=block_network,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=stderr,
@@ -258,11 +274,16 @@ def main():
                     p.wait()
         checks.append(
             {
-                "network": "Kernel seccomp filter denies Internet sockets; inherited by all children",
+                "network": (
+                    "macOS sandbox denies Internet outbound connections"
+                    if target.startswith("darwin-")
+                    else "Linux seccomp denies Internet sockets"
+                ),
                 "state": "fresh HOME and PATH without OMP/Bun/Node/Python/browser; shell added only for shell test",
             }
         )
-    report = ROOT / "build/smoke-results.json"
+    report = args.report or ROOT / "build" / target / "smoke-results.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
     report.write_text(json.dumps(checks, indent=2) + "\n")
     print(f"PASS: {len(checks)} real-OMP checks; {report}")
 

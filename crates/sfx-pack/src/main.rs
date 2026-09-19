@@ -8,7 +8,10 @@ use std::{
 };
 fn run() -> Result<()> {
     let a: Vec<_> = std::env::args_os().collect();
-    ensure!(a.len() == 5, "usage: sfx-pack STUB STAGE OUTPUT MAX_BYTES");
+    ensure!(
+        a.len() == 5,
+        "usage: sfx-pack STUB|--payload STAGE OUTPUT MAX_BYTES"
+    );
     let stage = Path::new(&a[2]);
     let out = Path::new(&a[3]);
     ensure!(!out.exists(), "output already exists");
@@ -39,7 +42,9 @@ fn run() -> Result<()> {
         .write(true)
         .open(&tmp)?;
     let result = (|| -> Result<()> {
-        io::copy(&mut File::open(&a[1])?, &mut f)?;
+        if a[1] != "--payload" {
+            io::copy(&mut File::open(&a[1])?, &mut f)?;
+        }
         let offset = f.stream_position()?;
         {
             let enc = zstd::stream::write::Encoder::new(&mut f, 9)?;

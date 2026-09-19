@@ -1,71 +1,66 @@
-# Local validation
+# Cross-platform revision validation
 
-Tested in this Work Mode session on Linux x86-64 with the official OMP v18.2.6
-binary and Rust 1.98.1. This is a tested Linux Lite milestone, not public-v1
-acceptance for the full proposed product.
+This revision adds native macOS Apple silicon/Intel and Linux Arm64 build paths
+to the existing Linux x64 builder. It is intended to be cloned and built on the
+user's Mac, not mistaken for a Linux-produced, Mac-tested executable.
 
-## Passed
+## Checks in this Linux session
 
-- Three Rust format tests: footer roundtrip, overflow/bounds and path rejection.
-- Seventeen integration tests: first extraction/reuse, arguments/working
-  directory/state environment, 16 concurrent launches, outer and inner updater
-  guards, fake host OMP coexistence, profile caches, literal profile arguments,
-  standard input, exact exit status, signal handoff, terminal visibility,
-  payload corruption even with valid cache, extracted-file corruption,
-  truncated footer, size budget, stale temporary cleanup, actual SIGKILL during
-  extraction with successful recovery, invalid paths/symlinks and deterministic
-  packing. Several tests cover multiple related assertions.
-- Clippy with warnings denied and Rust formatting.
-- Finished artifact relocated outside staging, fresh HOME, empty dependency PATH,
-  and a kernel seccomp network guard inherited by child processes.
-- Actual OMP version/help, default memory backend, configuration location and
-  sentinel configuration reads, native grep and read tools, named profiles,
-  legacy profile variable, empty canonical profile overriding the legacy value,
-  session/plugin sentinel preservation, update interception, private shim launch,
-  embedded upstream executable digest equality, and upstream confirmation that
-  both optional speech models are absent.
-- Actual agent initialization through its newline-delimited JSON control
-  interface and a successful bash `printf` command. A dummy model credential
-  allows initialization only; no provider call is sent, and Internet sockets
-  are denied by the kernel.
+- Eight Rust format/parser tests, including a Mach-O payload section with
+  signature bytes after it, invalid command/section bounds, missing section,
+  zero-relative-offset payload containers, ELF footer and path checks.
+- Twenty-two Python tests: platform detection, four pinned official assets,
+  Mac cache selection, wrong-host rejection, plus the original 17 lifecycle
+  tests including concurrent first runs, actual mid-extraction SIGKILL/recovery,
+  corruption, byte reproducibility, update isolation, signals and terminal use.
+- Complete native Linux x64 build through `./build.sh`, followed by real OMP
+  tests against the resulting artifact with enforced network restrictions.
+- Linux smoke checks cover OMP version/help, configuration reads, speech payload
+  absence, read/grep, profile selection, user-state sentinels, update guard,
+  private shim, upstream hash equality, agent initialization and bash execution.
+- Rust formatting and Clippy with warnings denied.
 
-`build/smoke-results.json` contains the actual command outputs and control
-responses. The exported source archive includes a copy under `validation/`.
+Mac source/type-check results are recorded in this revision's final validation
+entry below. Native macOS linking, codesign behavior and execution still need
+an actual Mac; the builder performs all three rather than declaring success
+based only on a source check.
 
-## Confirmed environment limit
+## Known Linux sandbox limit
 
-`omp config set memory.backend off` fails here with:
+Upstream config writes use an abstract Unix datagram socket as a lock. This host
+denies that operation. Both the packaged and untouched official executable
+produce the same failure. Normal smoke mode records only that exact reproduced
+Linux failure; `--strict-host` rejects it. The Mac path never waives config errors.
+The SFX's filesystem flock and normal agent startup work here.
 
-> Failed to acquire native file lock ... Operation not permitted (os error 1)
+## Native Mac validation supplied
 
-This reproduces with the byte-identical upstream binary, without the portable
-launcher and without the additional offline guard. Exact-tag upstream
-`crates/pi-natives/src/file_lock/linux.rs` implements locks by binding abstract
-Unix datagram sockets. A direct Python abstract socket bind also receives
-`PermissionError` in this sandbox. Ordinary filesystem `flock` works, so the
-SFX's own extraction lock is unaffected.
+A default Mac `./build.sh` verifies the official asset digest, compiles the native
+launcher and packer, embeds the payload into a proper Mach-O section, signs and
+verifies the finished executable, then runs the same real-OMP smoke suite with
+sandbox-enforced network denial. Reports are saved under `build/<target>/`.
+A signature or smoke failure exits unsuccessfully and leaves a diagnostic
+candidate rather than publishing it to dist.
 
-Configuration reads and agent initialization work. Configuration mutation and
-other upstream operations relying on that socket lock cannot be certified here.
-The smoke script records the matching wrapped/unwrapped failure explicitly.
-`--strict-host` rejects it; the GitHub verification workflow uses strict mode.
-No workaround or upstream modification is shipped.
+The GitHub workflow additionally runs the extraction lifecycle suite on Apple
+silicon and Intel runners. It has been supplied but not executed remotely here.
 
-## Not yet certified
+## Remaining product work
 
-- Clean minimal-container compatibility, an older glibc baseline or other Linux
-  distributions. This host has standard system libraries; a reduced PATH is
-  not a full container image. The launcher dynamically uses libc/libgcc;
-  upstream also uses ordinary libc/libm/libdl/libpthread.
-- Successful provider-backed read/edit/write conversation, interactive terminal
-  UI exercise, authentication/login or paid model traffic.
-- Real plugin execution/session resume; sentinel tests check coexistence and
-  preservation only.
-- Successful on-demand installation of an optional dependency/model. No wrapper
-  flag disables installation, but a successful download was not tested.
-- Portable/Full components, other operating systems/architectures, complete
-  upstream embedded-license inventory, signing, scheduled builds or publication.
+Portable/Full optional components and inference tests, Windows seeding/process
+handoff, musl runtime dependencies, minimal-host compatibility certification,
+full upstream embedded-license audit, notarization/signing identities, release
+mirroring and publication remain unimplemented. Lite's ordinary optional
+on-demand installation is preserved, but successful optional downloads were
+not exercised. No paid model requests were used.
 
-The test harness fails on unexpected failures. The known lock limitation is
-recognized only when wrapped and unwrapped upstream produce matching errors;
-it is not a blanket suppression of configuration errors.
+## Final cross-target check results
+
+Both `cargo check --locked --target aarch64-apple-darwin` and the corresponding
+`x86_64-apple-darwin` check completed successfully in this session. Rust's Mac
+standard libraries were installed locally. Zig's C cross compiler compiled the
+zstd dependency into Mac-target object files for these checks. This toolchain
+was used only for development validation; Mac users build with Apple's native
+compiler and do not need Zig. These were **type checks, not native executable
+link/sign/run tests**. The supplied build path performs the remaining checks on
+macOS. The native Linux run and all 30 Rust/Python tests passed locally.

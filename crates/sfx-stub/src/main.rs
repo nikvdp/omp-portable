@@ -1,4 +1,4 @@
-#![cfg(target_os = "linux")]
+#![cfg(unix)]
 use anyhow::{bail, ensure, Context, Result};
 use fs2::FileExt;
 use sfx_format::{digest, hash, safe_path, validate_manifest, Footer, Manifest};
@@ -24,6 +24,10 @@ fn verify(root: &Path) -> Result<()> {
     regular(&root.join("manifest.json"))?;
     let m: Manifest = serde_json::from_reader(File::open(root.join("manifest.json"))?)?;
     validate_manifest(&m)?;
+    ensure!(
+        m.target == sfx_format::native_target(),
+        "payload target does not match this launcher"
+    );
     for (p, r) in &m.files {
         let p = root.join(p);
         let meta = regular(&p)?;
@@ -62,10 +66,14 @@ fn extract(exe: &Path) -> Result<PathBuf> {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect::<String>();
+    let home = PathBuf::from(env::var_os("HOME").context("HOME is not set")?);
+    #[cfg(target_os = "macos")]
+    let cache = home.join("Library/Caches");
+    #[cfg(not(target_os = "macos"))]
     let cache = env::var_os("XDG_CACHE_HOME")
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
-        .unwrap_or(PathBuf::from(env::var_os("HOME").context("HOME is not set")?).join(".cache"));
+        .unwrap_or(home.join(".cache"));
     ensure!(cache.is_absolute(), "cache root must be absolute");
     let base = cache.join("omp-portable/dist");
     private_dir(&base)?;
@@ -75,8 +83,8 @@ fn extract(exe: &Path) -> Result<PathBuf> {
         .create(true)
         .truncate(false)
         .mode(0o600)
-        .custom_flags(0x20000)
-        .open(base.join(format!("{id}.lock")))?; // Linux O_NOFOLLOW
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(base.join(format!("{id}.lock")))?;
     lock.lock_exclusive()?;
     let root = base.join(&id);
     if root.exists() {
@@ -237,7 +245,7 @@ fn update(args: &[OsString]) -> bool {
 fn run() -> Result<()> {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if update(&args) {
-        println!("This is a portable OMP build.\nOMP version updates are managed by the portable release mirror.\nDownload a newer portable artifact instead.\nAll update variants, including --plugins and --check, are blocked in this milestone.");
+        println!("This is a portable OMP build.\nRebuild with this builder or download a newer portable artifact to update OMP.\nAll update variants, including --plugins and --check, are blocked in this milestone.");
         return Ok(());
     }
     let exe = env::current_exe()?;
