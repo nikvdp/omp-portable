@@ -1,0 +1,44 @@
+{
+  "repo": "can1357/oh-my-pi",
+  "tag": "v18.2.6",
+  "release_id": 391682356,
+  "asset": {
+    "name": "omp-linux-x64",
+    "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.2.6/omp-linux-x64",
+    "sha256": "0f38598c91e823d8cce07f151ec3999d51f213fb2cc3e07d89f1af8eef9247a2",
+    "size": 252405216
+  },
+  "license": {
+    "name": "LICENSE",
+    "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.2.6/LICENSE",
+    "sha256": "16c45f9d667442781f03fa198914cc39abcaa48ec5ed8f644643e554ca2fbf63",
+    "size": 1144
+  },
+  "reviewed_sources": [
+    {
+      "name": "dirs.ts",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.2.6/packages/utils/src/dirs.ts",
+      "sha256": "0d7a745a5d08715d7830bc821c042d36ff24aeaf7b3261efa27c340bb94dc2ed"
+    },
+    {
+      "name": "update-cli.ts",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.2.6/packages/coding-agent/src/cli/update-cli.ts",
+      "sha256": "5949f43472ba12a6436e9a44b3afbedf61f9db0d171f19bf8c4bfb766523c032"
+    },
+    {
+      "name": "profile-bootstrap.ts",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.2.6/packages/coding-agent/src/cli/profile-bootstrap.ts",
+      "sha256": "b03f09af5ba61ac53684017ae4dd63c37ce62535e2abac0e63f03c8a47029954"
+    },
+    {
+      "name": "loader-state.js",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.2.6/packages/natives/native/loader-state.js",
+      "sha256": "de59cfd780bfb4ff4411a542396ba2f7c512add3ad2d474cd2e30220c69e3930"
+    },
+    {
+      "name": "file-lock-linux.rs",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.2.6/crates/pi-natives/src/file_lock/linux.rs",
+      "sha256": "9cc279aa489ef2f2e45d8738a8600d9120e9138e86893412835122896b16ff29"
+    }
+  ]
+}

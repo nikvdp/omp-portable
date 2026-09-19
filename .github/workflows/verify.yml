@@ -1,0 +1,33 @@
+name: Verify Linux x64 Lite
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Install explicit Rust toolchain
+        run: rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
+      - name: Compile and check
+        run: |
+          cargo +1.98.1 fmt --check
+          cargo +1.98.1 clippy --locked --all-targets -- -D warnings
+          cargo +1.98.1 test --locked
+          cargo +1.98.1 build --locked --release
+      - name: Test extraction lifecycle
+        run: |
+          mkdir -p build
+          python3 -m unittest discover -s tests -v
+      - name: Build exact upstream release
+        env:
+          RUSTUP_TOOLCHAIN: 1.98.1
+        run: python3 scripts/build-lite.py --skip-compile
+      - name: Test finished artifact offline
+        run: python3 scripts/smoke.py --strict-host dist/omp-lite-18.2.6-linux-x64
