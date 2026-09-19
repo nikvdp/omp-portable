@@ -1,0 +1,10 @@
+[lite]
+browser = false
+speech_default = false
+mnemopi = false
+yt_dlp = false
+trafilatura = false
+local_models = "none"
+max_sfx_bytes = 1990000000
+
+# Portable and Full are deliberately not enabled until their offline tests exist.
