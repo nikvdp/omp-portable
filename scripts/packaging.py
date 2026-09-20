@@ -38,6 +38,8 @@ def package(stage, output, target, limit, *, env=None, stub=None, packer=None):
             # payload inside Mach-O. Its signature is then over the entire file.
             link_args = []
             for value in [
+                # The linker UUID varies with the temporary payload path.
+                "-no_uuid",
                 "-sectcreate",
                 "__OMP",
                 "__payload",
