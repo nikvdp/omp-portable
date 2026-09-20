@@ -33,6 +33,31 @@
       "name": "file-lock-linux.rs",
       "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.2.6/crates/pi-natives/src/file_lock/linux.rs",
       "sha256": "9cc279aa489ef2f2e45d8738a8600d9120e9138e86893412835122896b16ff29"
+    },
+    {
+      "name": "python-runtime.ts",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.2.6/packages/coding-agent/src/eval/py/runtime.ts",
+      "sha256": "748600ade9bd9cfd0e7d3a2da68693b6f57666164772e4e77e613f36ee3c4dea"
+    },
+    {
+      "name": "python-runner.py",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.2.6/packages/coding-agent/src/eval/py/runner.py",
+      "sha256": "7cfa116d02c2e2ebeaab2f488520871f5a9798a53d106a6a937b7a0606fc8a83"
+    },
+    {
+      "name": "browser-launch.ts",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.2.6/packages/coding-agent/src/tools/browser/launch.ts",
+      "sha256": "3bcefc94538af97e270555eb153ac8c2fbf1e20c533764b8039612be9a7d8eb4"
+    },
+    {
+      "name": "tools-manager.ts",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.2.6/packages/coding-agent/src/utils/tools-manager.ts",
+      "sha256": "2d17a769e292dbc9379eed457836accbaad1d343b308efa105ece00ef68fec4a"
+    },
+    {
+      "name": "fetch.ts",
+      "url": "https://raw.githubusercontent.com/can1357/oh-my-pi/v18.2.6/packages/coding-agent/src/tools/fetch.ts",
+      "sha256": "22377ab52fd4f6c8c36393bee98027e7337069472804841e7ad96e7cf414d5f6"
     }
   ],
   "assets": {

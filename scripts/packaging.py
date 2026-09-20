@@ -11,7 +11,17 @@ def binaries(target):
     return ROOT / "target" / TARGETS[target]["rust"] / "release"
 
 
-def package(stage, output, target, limit, *, env=None, stub=None, packer=None):
+def package(
+    stage,
+    output,
+    target,
+    limit,
+    *,
+    env=None,
+    stub=None,
+    packer=None,
+    embedded_target_dir=None,
+):
     env = env or cargo_environment()
     bins = binaries(target)
     stub, packer = Path(stub or bins / "sfx-stub"), Path(packer or bins / "sfx-pack")
@@ -59,7 +69,7 @@ def package(stage, output, target, limit, *, env=None, stub=None, packer=None):
                     "--target",
                     TARGETS[target]["rust"],
                     "--target-dir",
-                    str(ROOT / "target/embedded"),
+                    str(embedded_target_dir or ROOT / "target/embedded"),
                     "-p",
                     "sfx-stub",
                     "--",
@@ -70,7 +80,9 @@ def package(stage, output, target, limit, *, env=None, stub=None, packer=None):
                 check=True,
             )
             shutil.copyfile(
-                ROOT / "target/embedded" / TARGETS[target]["rust"] / "release/sfx-stub",
+                Path(embedded_target_dir or ROOT / "target/embedded")
+                / TARGETS[target]["rust"]
+                / "release/sfx-stub",
                 candidate,
             )
             candidate.chmod(0o755)

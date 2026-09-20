@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and verify a native single-file OMP Lite for this Linux or Mac host."""
+"""Build and verify a native single-file OMP Lite or Portable edition."""
 
 import argparse
 import hashlib
@@ -23,6 +23,7 @@ def sha(path):
 
 def acquire(url, path, expected, size=None):
     if not path.exists() or sha(path) != expected:
+        print(f"Downloading {path.name}", flush=True)
         tmp = path.with_name(path.name + ".download")
         req = urllib.request.Request(
             url, headers={"User-Agent": "omp-portable-builder"}
@@ -35,7 +36,7 @@ def acquire(url, path, expected, size=None):
                     "curl",
                     "--fail",
                     "--location",
-                    "--silent",
+                    "--progress-bar",
                     "--show-error",
                     "--retry",
                     "3",
@@ -51,13 +52,18 @@ def acquire(url, path, expected, size=None):
             )
         else:
             with urllib.request.urlopen(req, timeout=120) as src, tmp.open("wb") as dst:
-                shutil.copyfileobj(src, dst, 1024 * 1024)
+                received = 0
+                while chunk := src.read(1024 * 1024):
+                    dst.write(chunk)
+                    received += len(chunk)
+                    print(f"{path.name}: {received} bytes downloaded", flush=True)
         if sha(tmp) != expected:
             tmp.unlink()
             raise RuntimeError(f"Hash mismatch: {url}")
         tmp.replace(path)
     if size is not None and path.stat().st_size != size:
         raise RuntimeError(f"Size mismatch: {path}")
+    print(f"Verified {path.name} ({path.stat().st_size} bytes)", flush=True)
 
 
 def main(argv=None):
@@ -69,9 +75,9 @@ def main(argv=None):
     )
     parser.add_argument(
         "--edition",
-        choices=["lite"],
+        choices=["lite", "portable"],
         default="lite",
-        help="Lite preserves normal optional on-demand installs",
+        help="Lite preserves optional installs; Portable bundles Python, trafilatura, and Chromium",
     )
     parser.add_argument(
         "--plan",
@@ -104,6 +110,29 @@ def main(argv=None):
     asset = lock["assets"][target]
     cfg = TARGETS[target]
     policy = tomllib.loads((ROOT / "config/editions.toml").read_text())[args.edition]
+    expected_policy = {
+        "lite": {
+            "browser": False,
+            "speech_default": False,
+            "mnemopi": False,
+            "yt_dlp": False,
+            "trafilatura": False,
+            "local_models": "none",
+        },
+        "portable": {
+            "browser": True,
+            "speech_default": False,
+            "mnemopi": False,
+            "yt_dlp": False,
+            "trafilatura": True,
+            "local_models": "none",
+        },
+    }[args.edition]
+    actual_policy = {key: policy[key] for key in expected_policy}
+    if actual_policy != expected_policy:
+        raise RuntimeError(
+            f"{args.edition.title()} policy mismatch: expected {expected_policy}, got {actual_policy}"
+        )
     plan = {
         "target": target,
         "rust_target": cfg["rust"],
@@ -114,6 +143,11 @@ def main(argv=None):
         "container": cfg["container"],
         "max_sfx_bytes": policy["max_sfx_bytes"],
     }
+    if args.edition == "portable":
+        portable_lock = ROOT / "config/portable-lock.json"
+        if not portable_lock.is_file():
+            parser.error(f"Missing Portable dependency lock: {portable_lock}")
+        plan["portable_lock_sha256"] = sha(portable_lock)
     print(json.dumps(plan, indent=2), flush=True)
     if args.plan:
         return
@@ -126,19 +160,14 @@ def main(argv=None):
             if not Path(tool).exists():
                 parser.error(f"Required macOS build/test tool missing: {tool}")
         subprocess.run(["xcrun", "--find", "clang"], check=True)
-    if (
-        any(
-            policy[k]
-            for k in ("browser", "speech_default", "mnemopi", "yt_dlp", "trafilatura")
-        )
-        or policy["local_models"] != "none"
-    ):
-        raise RuntimeError("Lite policy unexpectedly enables optional components")
-    build = ROOT / "build" / target
+    build = ROOT / "build" / target / args.edition
     cache = ROOT / "build/upstream"
+    portable_cache = ROOT / "build/portable-cache" / target
     stage = build / "stage"
     build.mkdir(parents=True, exist_ok=True)
     cache.mkdir(parents=True, exist_ok=True)
+    if args.edition == "portable":
+        portable_cache.mkdir(parents=True, exist_ok=True)
     (build / "build-plan.json").write_text(json.dumps(plan, indent=2) + "\n")
     for item in [asset, lock["license"], *lock["reviewed_sources"]]:
         acquire(item["url"], cache / item["name"], item["sha256"], item.get("size"))
@@ -153,31 +182,44 @@ def main(argv=None):
     # Keep a standalone unembedded shim before macOS's final cargo rustc pass.
     for name in ["sfx-stub", "sfx-pack"]:
         if not (bins / name).is_file():
-            raise RuntimeError(f"Missing {bins/name}; remove --skip-compile")
+            raise RuntimeError(f"Missing {bins / name}; remove --skip-compile")
     if stage.exists():
         shutil.rmtree(stage)
     for folder in ("bin", "launcher-bin", "licenses"):
         (stage / folder).mkdir(parents=True, exist_ok=True)
     shutil.copyfile(cache / asset["name"], stage / "bin/omp.real")
     shutil.copyfile(bins / "sfx-stub", stage / "launcher-bin/omp")
+    if args.edition == "portable":
+        for name in ("python", "python3", "trafilatura", "chromium"):
+            shutil.copyfile(bins / "sfx-stub", stage / "launcher-bin" / name)
     if target.startswith("darwin-"):
-        # Re-sign the renamed shim; never alter the official OMP executable.
-        subprocess.run(
-            [
-                "/usr/bin/codesign",
-                "--force",
-                "--sign",
-                "-",
-                "--timestamp=none",
-                str(stage / "launcher-bin/omp"),
-            ],
-            check=True,
-        )
+        # Re-sign renamed shims; never alter the official OMP executable.
+        for name in ("omp", "python", "python3", "trafilatura", "chromium"):
+            shim = stage / "launcher-bin" / name
+            if not shim.exists():
+                continue
+            subprocess.run(
+                [
+                    "/usr/bin/codesign",
+                    "--force",
+                    "--sign",
+                    "-",
+                    "--timestamp=none",
+                    str(shim),
+                ],
+                check=True,
+            )
     shutil.copyfile(cache / "LICENSE", stage / "licenses/OMP-LICENSE")
     shutil.copyfile(ROOT / "LICENSE", stage / "licenses/LAUNCHER-LICENSE")
-    for path in ("bin/omp.real", "launcher-bin/omp"):
-        (stage / path).chmod(0o755)
+    for path in stage.joinpath("launcher-bin").iterdir():
+        path.chmod(0o755)
+    (stage / "bin/omp.real").chmod(0o755)
     collect(ROOT, stage, cfg["rust"], env)
+    portable = None
+    if args.edition == "portable":
+        from portable import stage_portable
+
+        portable = stage_portable(stage, target, portable_cache, acquire, env)
     files = {
         p.relative_to(stage).as_posix(): {
             "sha256": sha(p),
@@ -215,6 +257,8 @@ def main(argv=None):
         },
         "files": files,
     }
+    if portable is not None:
+        manifest["portable"] = portable
     (stage / "manifest.json").write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n"
     )
@@ -222,14 +266,24 @@ def main(argv=None):
         ROOT / "dist" / f"omp-{args.edition}-{lock['tag'].removeprefix('v')}-{target}"
     )
     candidate = build / "candidate" / output.name
-    package(stage, candidate, target, policy["max_sfx_bytes"], env=env)
+    package(
+        stage,
+        candidate,
+        target,
+        policy["max_sfx_bytes"],
+        env=env,
+        embedded_target_dir=build / "embedded-target",
+    )
     result = {
         "artifact": str(candidate),
         "target": target,
+        "edition": args.edition,
         "sha256": sha(candidate),
         "size_bytes": candidate.stat().st_size,
         "smoke": "not-run",
     }
+    if args.edition == "portable":
+        result["portable_lock_sha256"] = plan["portable_lock_sha256"]
     resultfile = candidate.with_name(candidate.name + ".build.json")
     resultfile.write_text(json.dumps(result, indent=2) + "\n")
     if not args.skip_smoke:
@@ -263,12 +317,15 @@ def main(argv=None):
     shutil.copyfile(
         stage / "manifest.json", output.with_name(output.name + ".manifest.json")
     )
-    alias = output.parent / "omp-lite"
+    alias = output.parent / f"omp-{args.edition}"
     if not args.skip_smoke and alias.is_symlink():
         alias.unlink()
     if not args.skip_smoke and not alias.exists():
         alias.symlink_to(output.name)
-    print(f"\nBuilt {output}\nRun: ./dist/omp-lite --version\nSmoke: {result['smoke']}")
+    print(
+        f"\nBuilt {output}\nRun: ./dist/omp-{args.edition} --version\n"
+        f"Smoke: {result['smoke']}"
+    )
 
 
 if __name__ == "__main__":
