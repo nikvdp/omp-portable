@@ -7,7 +7,6 @@ import pty
 import select
 import shutil
 import signal
-import struct
 import subprocess
 import tempfile
 import time
@@ -237,22 +236,36 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(self.run_sfx().returncode, 0)
         bad = self.dir / "bad"
         shutil.copy2(self.artifact, bad)
+        payload = self.dir / "payload"
+        subprocess.run(
+            [str(PACK), "--payload", str(self.stage), str(payload), "1990000000"],
+            check=True,
+            capture_output=True,
+        )
+        # Locate the actual compressed stream, not a platform-dependent offset.
+        off = bad.read_bytes().index(payload.read_bytes()[:-64])
         with bad.open("r+b") as f:
-            if platform.system() == "Darwin":
-                # Corrupt a byte in the signed image; macOS may kill it before main.
-                off = 16384
-            else:
-                f.seek(-64, 2)
-                footer = f.read()
-                off = struct.unpack_from("<Q", footer, 16)[0]
             f.seek(off + 10)
             b = f.read(1)
             f.seek(off + 10)
             f.write(bytes([b[0] ^ 1]))
+        if platform.system() == "Darwin":
+            # Keep the image executable so the launcher's digest check is tested.
+            subprocess.run(
+                [
+                    "/usr/bin/codesign",
+                    "--force",
+                    "--sign",
+                    "-",
+                    "--timestamp=none",
+                    str(bad),
+                ],
+                check=True,
+                capture_output=True,
+            )
         p = self.run_sfx(exe=bad)
         self.assertNotEqual(p.returncode, 0)
-        if platform.system() != "Darwin":
-            self.assertIn("SHA-256 mismatch", p.stderr)
+        self.assertIn("SHA-256 mismatch", p.stderr)
 
     def test_cached_corruption(self):
         self.run_sfx()
