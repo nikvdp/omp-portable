@@ -1,89 +1,90 @@
-# Cross-platform revision validation
+# Validation
 
-This revision adds native macOS Apple silicon/Intel and Linux Arm64 build paths
-to the existing Linux x64 builder. It is intended to be cloned and built on the
-user's Mac, not mistaken for a Linux-produced, Mac-tested executable.
+The current scope is Lite and Portable for OMP 18.2.6. Portable adds private
+Python, trafilatura, and a native browser. Full and model payloads are not
+implemented. No paid model requests were used in these checks.
 
-## Checks in this Linux session
+## Hosted Lite builds and publication
 
-- Eight Rust format/parser tests, including a Mach-O payload section with
-  signature bytes after it, invalid command/section bounds, missing section,
-  zero-relative-offset payload containers, ELF footer and path checks.
-- Twenty-two Python tests: platform detection, four pinned official assets,
-  Mac cache selection, wrong-host rejection, plus the original 17 lifecycle
-  tests including concurrent first runs, actual mid-extraction SIGKILL/recovery,
-  corruption, byte reproducibility, update isolation, signals and terminal use.
-- Complete native Linux x64 build through `./build.sh`, followed by real OMP
-  tests against the resulting artifact with enforced network restrictions.
-- Linux smoke checks cover OMP version/help, configuration reads, speech payload
-  absence, read/grep, profile selection, user-state sentinels, update guard,
-  private shim, upstream hash equality, agent initialization and bash execution.
-- Rust formatting and Clippy with warnings denied.
+All four native Lite targets passed GitHub verification and release:
 
-Mac source/type-check results are recorded in this revision's final validation
-entry below. Native macOS linking, codesign behavior and execution still need
-an actual Mac; the builder performs all three rather than declaring success
-based only on a source check.
+- [Four-platform verification](https://github.com/nikvdp/omp-portable/actions/runs/35490959363).
+- [Build and publication](https://github.com/nikvdp/omp-portable/actions/runs/35490966175).
+- [Published Lite 18.2.6 release](https://github.com/nikvdp/omp-portable/releases/tag/omp-v18.2.6).
 
-## Known Linux sandbox limit
+The Mac packaging fix disables temporary-path-dependent linker UUIDs. The
+corruption test changes the actual embedded payload and re-signs the Mac fixture
+so it exercises the distribution's digest check. All 22 lifecycle/platform tests
+passed on the hosted platforms. The published release now contains four
+executables and four SHA-256 files; its build reports and manifests were removed.
 
-Upstream config writes use an abstract Unix datagram socket as a lock. This host
-denies that operation. Both the packaged and untouched official executable
-produce the same failure. Normal smoke mode records only that exact reproduced
-Linux failure; `--strict-host` rejects it. The Mac path never waives config errors.
-The SFX's filesystem flock and normal agent startup work here.
+## Local Portable verification
 
-## Native Mac validation supplied
+Portable was built and exercised on macOS ARM64 and Linux ARM64:
 
-A default Mac `./build.sh` verifies the official asset digest, compiles the native
-launcher and packer, embeds the payload into a proper Mach-O section, signs and
-verifies the finished executable, then runs the same real-OMP smoke suite with
-sandbox-enforced network denial. Reports are saved under `build/<target>/`.
-A signature or smoke failure exits unsuccessfully and leaves a diagnostic
-candidate rather than publishing it to dist.
+- Rust formatting, Clippy with warnings denied, and eight Rust tests passed.
+- All 22 existing Python lifecycle/platform tests passed on both hosts.
+- Each Portable artifact passed 24 strict offline checks. These cover the existing
+  OMP commands, profiles, config writes, update protection, private shim, and RPC
+  execution, plus bundled Python, HTML extraction, browser JavaScript rendering,
+  browser-path selection, and preservation of an explicit browser override.
+- The Mac build verified the finished ad-hoc signature. The browser smoke command
+  uses a separate profile and Puppeteer's automation settings, including no
+  first-run setup, background networking, or real keychain access.
+- The Linux preparation/build/upload jobs passed under `act` on a native ARM64
+  Docker engine. The local runner image used Ubuntu 24.04 and Rust 1.98.1.
+  Publication was disabled. The uploaded executable and internal sidecars were
+  recovered locally, and the executable's SHA-256 matched its build report.
 
-The GitHub workflow additionally runs the extraction lifecycle suite on Apple
-silicon and Intel runners. It has been supplied but not executed remotely here.
+Every build smoke run proves its network guard is active before testing OMP.
+Linux denies Internet socket creation with seccomp; macOS uses `sandbox-exec`.
+Fresh HOME and an empty host-tool PATH prevent use of installed Python or browsers.
 
-## Remaining product work
+### Minimal Linux host
 
-Portable/Full optional components and inference tests, Windows seeding/process
-handoff, musl runtime dependencies, minimal-host compatibility certification,
-full upstream embedded-license audit, and notarization/signing identities remain
-unimplemented. Lite's ordinary on-demand installation is preserved, but successful
-optional downloads were not exercised. No paid model requests were used.
+The recovered Linux Portable executable also ran in an unmodified `ubuntu:24.04`
+ARM64 container with `--network none`. No packages were installed in that
+container, and the check first confirmed that Python, Chromium, and trafilatura
+were absent from PATH. The executable then:
 
-## Final cross-target check results
+1. Extracted and launched official OMP.
+2. Ran bundled Python with working SQLite and SSL modules.
+3. Extracted a local HTML article through bundled trafilatura.
+4. Rendered JavaScript through bundled headless Chromium.
+5. Answered a DevTools protocol request through the native launcher's inherited
+   pipes, the transport OMP uses for browser control.
 
-Both `cargo check --locked --target aarch64-apple-darwin` and the corresponding
-`x86_64-apple-darwin` check completed successfully in this session. Rust's Mac
-standard libraries were installed locally. Zig's C cross compiler compiled the
-zstd dependency into Mac-target object files for these checks. This toolchain
-was used only for development validation; Mac users build with Apple's native
-compiler and do not need Zig. These were **type checks, not native executable
-link/sign/run tests**. The supplied build path performs the remaining checks on
-macOS. The native Linux run and all 30 Rust/Python tests passed locally.
+The minimal image emits desktop DBus/GSettings diagnostics; the headless rendering
+and protocol checks passed. This verifies the Ubuntu 24.04 headless runtime, not a
+complete desktop session or arbitrary Linux distribution compatibility.
 
-## Release workflow validation
+The Linux runtime lock includes packages already installed on a typical build
+runner: it was resolved against an empty dpkg state. The builder stages shared
+libraries, fonts, and copyright notices without installing the packages. glibc
+libraries are excluded from the browser search path to keep the host loader and
+C runtime paired.
 
-The scheduled Lite release workflow passed its preparation and Linux ARM64 build
-jobs locally under `act` on an ARM64 Docker engine using
-`catthehacker/ubuntu:act-24.04`. Publication was disabled. This exercised upstream
-discovery, reviewed-source verification, lock upload/download, Rust 1.98.1
-installation, formatting, Clippy, eight Rust tests, the native release build,
-19 strict offline real-OMP checks, 22 Python tests, and artifact upload.
+## Release gates and remaining verification
 
-The official Linux ARM64 binary was cached through GitHub's asset API after slow
-downloads. Its pinned SHA-256 was verified before copying it into the container;
-the builder independently verified the cache. The uploaded binary and its three
-sidecars were recovered locally and their checksum was verified.
+`actionlint` passed both workflows. Throwaway publication checks verified the
+binary/checksum-only public asset list and that internal reports and manifests
+remain required. Missing artifacts, failed smoke reports, mismatched checksums,
+and changed reviewed upstream source bytes reject publication. Fixture checks
+are not evidence of native execution on additional platforms.
 
-`actionlint` passed both workflows. Throwaway publication-validator checks
-accepted a complete fixture matrix and rejected a missing platform, failed smoke
-report, and mismatched real binary checksum. Discovery checks covered skipping
-an existing published release and rejecting changed reviewed source bytes without
-altering the lock. These fixture checks are not native tests of the other targets.
+The new workflow requires Lite and Portable on all four platforms before publishing
+`omp-v<upstream-version>-r2`. Portable x64 builds and the complete eight-build
+GitHub publication path have not run yet. Portable changes remain local; no
+Portable release was published.
 
-No GitHub release was created. Hosted-runner behavior for the other three targets,
-GitHub token permissions, and actual draft/upload/publication still require the
-first remote run. Scheduling requires the workflow on the default branch.
+Full, Windows, musl, signing identities/notarization, and a full audit of licenses
+inside the official upstream OMP binary remain outside the implemented scope.
+Lite retains upstream's on-demand optional downloads; successful optional downloads
+were not tested here.
+
+## Restricted-host config writes
+
+Some Linux sandboxes deny the abstract Unix socket upstream uses for config-write
+locks. Normal smoke mode records this limitation only when the untouched official
+binary reproduces the same error. `--strict-host` rejects it. The native Mac and
+local ARM64 workflow checks used strict mode; no config-write failure was waived.

@@ -4,6 +4,9 @@ Build a native, self-extracting OMP executable **on macOS or Linux**. The builde
 automatically detects Apple silicon, Intel Mac, Linux x64, or Linux Arm64 and
 bundles the matching official OMP release. It does not rebuild or modify OMP.
 
+Lite bundles OMP only. Portable also bundles Python, trafilatura, and a browser.
+Neither edition includes model weights or media helper tools.
+
 ## Build on your Mac
 
 Clone the new bundle into a new directory (it contains the original history):
@@ -32,6 +35,14 @@ Then run:
 ./dist/omp-lite
 ```
 
+To build Portable instead, run:
+
+```sh
+./build.sh --edition portable
+./dist/omp-portable --version
+./dist/omp-portable
+```
+
 **That is the same command on Apple silicon and Intel.** No architecture flag
 is required. Use an ordinary native terminal/Python on Apple silicon; a Python
 running through Rosetta identifies itself as Intel and builds the Intel target.
@@ -55,21 +66,28 @@ transferred from the Internet.
 Install Python 3.11+, Rust/Cargo, a C compiler and Git, then use the same
 `./build.sh` and `./dist/omp-lite` commands. The builder supports native glibc
 Linux x64/Arm64 hosts. It does not label musl/Alpine supported.
+Portable builds also need `dpkg-deb` to extract the pinned browser libraries.
+The Portable Linux runtime baseline is Ubuntu 24.04 with glibc 2.39 or newer;
+other Linux distributions have not been verified.
 
 ## What is bundled
 
-The currently implemented **Lite edition** contains official OMP, the native
-extractor/update-protecting launcher, manifest and license notices. Ordinary
-optional OMP features retain their normal on-demand dependency installation.
-A bundled browser, speech models and embedding models belong to the planned
-Portable/Full editions and are not claimed by this build.
+| Edition | Bundled content |
+| --- | --- |
+| Lite | Official OMP, native launcher, manifest, and license notices |
+| Portable | Lite plus private Python 3.12, its standard library, trafilatura and its dependencies, and native Chromium |
 
-| Build host | Native output | Verification in this session |
+Portable includes the browser's Linux shared libraries and fonts. The host's
+glibc and ELF loader remain in use. All extra downloads are version-, size-, and
+SHA-256-pinned in `config/portable-lock.json`. Full remains unimplemented; no
+speech, embedding, or other model weights are bundled.
+
+| Native target | Lite verification | Portable verification |
 | --- | --- | --- |
-| Apple silicon Mac | darwin-arm64 | Rust cross-target type check passed; native run still needed |
-| Intel Mac | darwin-x64 | Rust cross-target type check passed; native run still needed |
-| Linux x64 | linux-x64 | Full local build and offline smoke tests |
-| Linux Arm64 | linux-arm64 | Implemented; native run still needed |
+| darwin-arm64 | GitHub build and release passed | Local native build and offline smoke checks |
+| darwin-x64 | GitHub build and release passed | Configured; native verification still needed |
+| linux-arm64 | GitHub build and release passed | Local `act` workflow and minimal offline Ubuntu 24.04 container |
+| linux-x64 | GitHub build and release passed | Configured; native verification still needed |
 
 Windows and musl need their own launcher/runtime work and are rejected clearly.
 One portable file is produced **per operating system and architecture**.
@@ -82,10 +100,13 @@ First launch verifies and streams the embedded archive into a private cache:
 - Linux: `${XDG_CACHE_HOME:-$HOME/.cache}/omp-portable/dist/<payload-sha256>/`
 
 Subsequent launches verify and reuse it. Normal HOME, configuration, credentials,
-sessions and plugins remain visible. Only child PATH and XDG_CACHE_HOME are
-changed. Subprocesses inherit the private cache; the private `omp` shim always
-starts this distribution. All `omp update` variants are intercepted; rebuild
-with a reviewed newer upstream lock to update. Nothing replaces global OMP.
+sessions and plugins remain visible. Child PATH and XDG_CACHE_HOME select the
+private helpers and cache; the private `omp` shim always starts this distribution.
+Portable sets a default `PUPPETEER_EXECUTABLE_PATH` and Python bytecode cache
+location, preserving nonempty explicit overrides. Browser libraries and font
+settings apply only to the browser process, not OMP or Python.
+All `omp update` variants are intercepted; rebuild with a reviewed newer upstream
+lock to update. Nothing replaces global OMP.
 
 ## Inspect and diagnose
 
@@ -95,13 +116,14 @@ with a reviewed newer upstream lock to update. Nothing replaces global OMP.
 python3 -m unittest discover -s tests -v   # after a native build
 ```
 
-Each build writes `build/<target>/build-plan.json`,
-`build/<target>/smoke-results.json`, plus per-artifact `.build.json`,
-`.manifest.json` and `.sha256` sidecars under `dist/`.
+Each build writes `build/<target>/<edition>/build-plan.json`,
+`build/<target>/<edition>/smoke-results.json`, plus per-artifact `.build.json`,
+`.manifest.json` and `.sha256` sidecars under `dist/`. Public GitHub releases
+contain only the versioned executables and `.sha256` files.
 
 A failed smoke test makes the build command fail. The candidate is
-left under `build/<target>/candidate/` for diagnosis and its `.build.json` says
-`smoke: failed`; existing files under `dist/` are preserved. `--skip-smoke` explicitly skips
+left under `build/<target>/<edition>/candidate/` for diagnosis and its `.build.json`
+says `smoke: failed`; existing files under `dist/` are preserved. `--skip-smoke` explicitly skips
 verification and is never used by the native verification workflow.
 `--skip-compile` reuses target-scoped tools; normal builds do not need either flag.
 
@@ -112,33 +134,39 @@ the four-target workflow, treats it as a failure. Mac failures are never waived.
 
 See [docs/VALIDATION.md](docs/VALIDATION.md) for the evidence and limits, and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the macOS container design.
-The native Mac workflow is supplied but was not run from this Linux session.
 
-## Automated Lite releases
+## Automated releases
 
 `.github/workflows/release.yml` checks the latest stable upstream release hourly
-and can also be run from Actions using **Release OMP Lite**. Push the workflow
+and can also be run from Actions using **Release OMP Lite and Portable**. Push the workflow
 to the repository's default branch and enable Actions. No personal access token
 is needed on GitHub; only the publication job receives `contents: write`.
 
-The workflow resolves upstream asset hashes from GitHub and checks the five
-reviewed source files against the checked-in lock. If any reviewed file changes,
-the run fails with `Review required`; review and update the lock before retrying.
-It tracks the latest stable release, not every historical release.
+The workflow resolves upstream asset hashes from GitHub and checks the reviewed
+source files against the checked-in lock, including Python, browser, and
+extraction integration code. If a reviewed file changes, the run fails with
+`Review required`; review and update the lock before retrying. Optional component
+versions stay pinned separately. The workflow tracks the latest stable OMP
+release, not every historical release.
 
-All four native Lite builds must pass Rust checks, strict offline smoke tests,
-and extraction tests before publication. The final job verifies the full set
-of binaries, checksums, manifests, and build reports, uploads them to a draft
-release, then publishes `omp-v<upstream-version>`. Already published versions
-are skipped; interrupted draft uploads can be retried. Portable/Full and
-Windows/musl are not published.
+All eight builds—Lite and Portable on four native platforms—must pass Rust
+checks, strict offline smoke tests, and extraction tests before publication.
+The final job validates binaries, checksums, manifests, build reports, and the
+Portable dependency-lock digest. Manifests and reports stay in workflow artifacts;
+only eight executables and eight `.sha256` files are uploaded to the release.
+Publication uses a draft so incomplete uploads aren't published.
 
-For a GitHub dry run, clear the manual workflow's `publish` checkbox. This still
-builds and uploads workflow artifacts but does not create a release.
-The Linux ARM64 preparation/build/upload path has also passed locally with
-`act`, using `catthehacker/ubuntu:act-24.04` and publication disabled.
-Actual GitHub publication and the other three hosted runners still need their
-first remote run.
+The current packaging revision produces `omp-v<upstream-version>-r2`. Existing
+Lite-only `omp-v<upstream-version>` releases remain unchanged and do not prevent
+the new combined release. Complete published revision-2 releases are skipped;
+interrupted drafts can be retried.
+
+For a GitHub dry run, leave the manual workflow's **publish** checkbox clear.
+This builds and uploads workflow artifacts without creating a release.
+Lite has passed all four hosted runners and publication. Portable has passed
+local macOS ARM64 and Linux ARM64 checks; the eight-build GitHub workflow and
+Portable x64 builds still need their first run. See the validation document for
+the exact local evidence.
 
 ## Git history
 

@@ -6,14 +6,15 @@
 upstream asset name, payload container and verification runner. The single
 `build.sh` / `scripts/build.py` entry point detects the current process platform,
 resolves a data-driven plan, and builds with an explicit Rust target. Each
-platform has its own staging and Cargo output paths. Cross-building is rejected;
-optional components will also need native build/test environments.
+target and edition have separate staging paths; Cargo tools are target-scoped.
+Cross-building is rejected. Optional components also use native smoke checks.
 
 The upstream lock retains one reviewed release and four official binary hashes:
 Linux x64/Arm64 and macOS Intel/Apple silicon. Assets and reviewed upstream source
 files are verified before use. The official executable remains byte-identical.
-The current payload edition is Lite. Portable/Full component prewarming and
-Windows/musl support remain separate unfinished work, not aliases for Lite.
+Lite bundles that executable without optional tools. Portable adds locked Python,
+trafilatura, and browser payloads. Full, model weights, and Windows/musl support
+remain unimplemented.
 
 ## Payload format
 
@@ -73,13 +74,35 @@ modification; public signing identities/notarization are not implemented.
 The native shim derives the distribution from its own path and never resolves
 host `omp`. Outer and inner entry points block every `update` variant. Unix exec
 preserves arguments, current directory, terminal, streams, signals and exit
-status. The environment overlay changes PATH and XDG_CACHE_HOME only; HOME and
-OMP user-state selectors retain their incoming values. Embedded OMP native
-addons may extract into the ordinary native namespace as upstream intends.
+status. PATH and XDG_CACHE_HOME select private helpers and caches; HOME and OMP
+user-state selectors retain their incoming values. Portable adds default browser
+and Python bytecode-cache locations without replacing nonempty explicit overrides.
+Embedded OMP native addons use upstream's ordinary native namespace.
 
 Profile cache candidates from environment/argv are precreated only for safe
 names. Upstream owns argv parsing; literal profile-looking tool arguments are
 not rejected. No optional cache components are created merely for symmetry.
+
+## Portable components
+
+`config/portable-lock.json` pins archives, wheels, browser builds, Linux runtime
+packages, and standalone license notices by version, size, and SHA-256.
+`scripts/portable.py` stages them without invoking a runtime package manager.
+Archive links are checked for containment and materialized before packing; the
+final SFX format still accepts only regular files.
+
+Native multicall launchers provide `python`, `python3`, `trafilatura`, and
+`chromium`. Python uses its bundled standard library and wheel installation;
+trafilatura invokes its declared console entry point. Bytecode is written outside
+the verified payload. The default browser path points to the native Chromium
+launcher; a nonempty user `PUPPETEER_EXECUTABLE_PATH` takes precedence.
+
+Linux browser dependencies are resolved against an empty installed-package
+database for Ubuntu 24.04, not against the build runner's installed packages.
+The builder copies ELF shared libraries, fonts, and copyright notices. It excludes
+glibc's libraries so the host C runtime stays paired with its loader.
+Only Chromium receives the bundled library path and font configuration.
+OMP and Python do not inherit browser library overrides.
 
 ## Builder verification
 
@@ -96,19 +119,22 @@ allowing local worker sockets. Every smoke run first proves that a loopback
 connection receives a permission denial; missing or ineffective network guards
 fail the test. Dead proxies are not used as evidence of offline operation.
 
-The verification workflow runs all four native hosts, including codesigning and
-real OMP smoke tests on both Macs. The release workflow polls upstream hourly,
-passes one resolved lock to all four builds, and publishes only after every
-build and the complete-artifact checksum gate pass. Publication uses a draft
-release so interrupted uploads do not expose an incomplete release.
+Both workflows cover Lite and Portable on all four native hosts. The release
+workflow polls upstream hourly and passes the same upstream and Portable locks
+to all eight builds. Publication requires every build and the complete-artifact
+checksum gate to pass. Reports and manifests remain internal validation inputs;
+public assets are executables and SHA-256 files only. Revision-2 tags keep the
+combined release distinct from existing Lite-only releases. Publication uses a
+draft so interrupted uploads do not expose an incomplete release.
 
 ## Upstream and license review
 
 The lock records release ID, hashes/sizes and reviewed source files covering
-cache/profile resolution, updater routing, embedded addon extraction and Linux
-file locking. New tags can reuse that review only when all reviewed source hashes
+cache/profile resolution, updater routing, embedded addon extraction, Linux
+file locking, Python execution, helper discovery, browser launch, and extraction.
+New tags can reuse that review only when all reviewed source hashes
 remain identical; a changed file stops release preparation for human review.
-Release LICENSE, the downstream
-license, and notices from locked Cargo dependency sources are included. Unknown
-Cargo license expressions fail builds. A full audit of every dependency compiled
-inside upstream's binary remains a requirement before public release publication.
+Release LICENSE, the downstream license, and notices from locked Cargo dependency
+sources are included. Portable adds Python, browser, wheel, and Ubuntu package
+notices. Unknown Cargo license expressions fail builds. A full audit of every
+dependency compiled inside upstream's binary remains outstanding.
