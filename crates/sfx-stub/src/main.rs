@@ -20,7 +20,7 @@ fn regular(p: &Path) -> Result<fs::Metadata> {
     ensure!(m.is_file(), "not a regular file: {}", p.display());
     Ok(m)
 }
-fn verify(root: &Path) -> Result<()> {
+fn verify(root: &Path) -> Result<Manifest> {
     regular(&root.join("manifest.json"))?;
     let m: Manifest = serde_json::from_reader(File::open(root.join("manifest.json"))?)?;
     validate_manifest(&m)?;
@@ -41,7 +41,7 @@ fn verify(root: &Path) -> Result<()> {
             "incorrect executable permissions"
         );
     }
-    Ok(())
+    Ok(m)
 }
 fn private_dir(p: &Path) -> Result<()> {
     fs::create_dir_all(p)?;
@@ -156,8 +156,7 @@ fn extract(exe: &Path) -> Result<PathBuf> {
         }
         // Drain decoder so truncated/trailing compressed data is not hidden by tar EOF.
         std::io::copy(&mut ar.into_inner(), &mut std::io::sink())?;
-        verify(&tmp)?;
-        let m: Manifest = serde_json::from_reader(File::open(tmp.join("manifest.json"))?)?;
+        let m = verify(&tmp)?;
         let expected: BTreeSet<_> = m
             .files
             .keys()
@@ -243,40 +242,109 @@ fn update(args: &[OsString]) -> bool {
     false
 }
 fn run() -> Result<()> {
-    let args: Vec<_> = env::args_os().skip(1).collect();
-    if update(&args) {
-        println!("This is a portable OMP build.\nRebuild with this builder or download a newer portable artifact to update OMP.\nAll update variants, including --plugins and --check, are blocked in this milestone.");
-        return Ok(());
-    }
+    let mut process_args = env::args_os();
+    let argv0 = process_args.next().context("missing argv[0]")?;
+    let args: Vec<_> = process_args.collect();
     let exe = env::current_exe()?;
-    // The private shim is the same native stub without an appended payload.
-    // Derive its distribution from its own location, never from an environment variable.
-    let is_shim = exe.file_name() == Some(std::ffi::OsStr::new("omp"))
-        && exe.parent().and_then(Path::file_name) == Some(std::ffi::OsStr::new("launcher-bin"));
-    let root = if is_shim {
-        let p = exe
+    // Private shims are copies of this executable. Derive their root from the
+    // executable, but dispatch by argv[0] so every helper copy uses one binary.
+    let exe_name = exe.file_name().and_then(|name| name.to_str());
+    let is_shim = exe.parent().and_then(Path::file_name)
+        == Some(std::ffi::OsStr::new("launcher-bin"))
+        && exe_name.is_some_and(|name| {
+            ["omp", "python", "python3", "trafilatura", "chromium"].contains(&name)
+        });
+    let (root, manifest) = if is_shim {
+        let root = exe
             .parent()
             .and_then(Path::parent)
             .context("invalid shim path")?
             .to_path_buf();
-        verify(&p)?;
-        p
+        let manifest = verify(&root)?;
+        (root, manifest)
     } else {
-        extract(&exe)?
+        let root = extract(&exe)?;
+        let manifest: Manifest = serde_json::from_reader(File::open(root.join("manifest.json"))?)?;
+        (root, manifest)
     };
-    let xdg = root.join("xdg-cache");
-    fs::create_dir_all(xdg.join("omp"))?;
-    for p in profiles(&args) {
-        fs::create_dir_all(xdg.join("omp/profiles").join(p))?;
+    let invocation = if is_shim {
+        Path::new(&argv0)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| ["omp", "python", "python3", "trafilatura", "chromium"].contains(name))
+            .or(exe_name)
+            .context("invalid shim name")?
+    } else {
+        "omp"
+    };
+    if invocation == "omp" && update(&args) {
+        println!("This is a portable OMP build.\nRebuild with this builder or download a newer portable artifact to update OMP.\nAll update variants, including --plugins and --check, are blocked in this milestone.");
+        return Ok(());
     }
+
+    let xdg = root.join("xdg-cache");
+    let mut cmd = if invocation == "omp" {
+        fs::create_dir_all(xdg.join("omp"))?;
+        for p in profiles(&args) {
+            fs::create_dir_all(xdg.join("omp/profiles").join(p))?;
+        }
+        let mut cmd = Command::new(root.join("bin/omp.real"));
+        cmd.env("XDG_CACHE_HOME", &xdg);
+        cmd
+    } else {
+        let portable = manifest
+            .portable
+            .as_ref()
+            .context("helpers require the Portable edition")?;
+        if invocation == "chromium" {
+            Command::new(root.join(&portable.browser))
+        } else {
+            let mut cmd = Command::new(root.join(&portable.python));
+            if invocation == "trafilatura" {
+                cmd.args([
+                    "-c",
+                    "import sys; from trafilatura.cli import main; sys.argv[0] = 'trafilatura'; sys.exit(main())",
+                ]);
+            }
+            cmd
+        }
+    };
+    cmd.args(&args);
     let mut paths = vec![root.join("launcher-bin")];
     paths.extend(env::split_paths(&env::var_os("PATH").unwrap_or_default()));
-    let mut cmd = Command::new(root.join("bin/omp.real"));
-    cmd.args(&args)
-        .env("XDG_CACHE_HOME", &xdg)
-        .env("PATH", env::join_paths(paths)?);
+    cmd.env("PATH", env::join_paths(paths)?);
+    if manifest.portable.is_some() {
+        if env::var_os("PUPPETEER_EXECUTABLE_PATH")
+            .filter(|value| !value.is_empty())
+            .is_none()
+        {
+            cmd.env(
+                "PUPPETEER_EXECUTABLE_PATH",
+                root.join("launcher-bin/chromium"),
+            );
+        }
+        if invocation != "chromium"
+            && env::var_os("PYTHONPYCACHEPREFIX")
+                .filter(|value| !value.is_empty())
+                .is_none()
+        {
+            let pycache = xdg.join("python");
+            fs::create_dir_all(&pycache)?;
+            cmd.env("PYTHONPYCACHEPREFIX", pycache);
+        }
+    }
+    #[cfg(target_os = "linux")]
+    if invocation == "chromium" {
+        let mut libraries = vec![root.join("browser/lib")];
+        if let Some(existing) = env::var_os("LD_LIBRARY_PATH").filter(|value| !value.is_empty()) {
+            libraries.extend(env::split_paths(&existing));
+        }
+        cmd.env("LD_LIBRARY_PATH", env::join_paths(libraries)?);
+        cmd.env("FONTCONFIG_FILE", root.join("browser/fonts.conf"));
+        cmd.env("FONTCONFIG_PATH", root.join("browser"));
+    }
     let e = cmd.exec();
-    bail!("cannot execute bundled OMP: {e}")
+    bail!("cannot execute bundled {invocation}: {e}")
 }
 fn main() {
     if let Err(e) = run() {

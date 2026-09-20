@@ -154,18 +154,28 @@ pub struct FileRecord {
 }
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
+pub struct Portable {
+    pub python: String,
+    pub browser: String,
+    pub components: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub schema: u32,
     pub edition: String,
     pub target: String,
     pub upstream: serde_json::Value,
     pub builder: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub portable: Option<Portable>,
     pub files: BTreeMap<String, FileRecord>,
 }
 pub fn validate_manifest(m: &Manifest) -> Result<()> {
     ensure!(
         m.schema == 1
-            && m.edition == "lite"
+            && ["lite", "portable"].contains(&m.edition.as_str())
             && ["linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"]
                 .contains(&m.target.as_str()),
         "unsupported manifest"
@@ -185,6 +195,37 @@ pub fn validate_manifest(m: &Manifest) -> Result<()> {
             r.sha256.len() == 64 && r.sha256.bytes().all(|c| c.is_ascii_hexdigit()),
             "invalid digest"
         );
+    }
+    match (&m.edition[..], &m.portable) {
+        ("lite", None) => {}
+        ("lite", Some(_)) => bail!("Lite manifest must not contain portable metadata"),
+        ("portable", None) => bail!("Portable manifest is missing portable metadata"),
+        ("portable", Some(portable)) => {
+            ensure!(
+                portable.python == "helpers/python/bin/python3",
+                "invalid bundled Python path"
+            );
+            safe_path(Path::new(&portable.browser))?;
+            ensure!(
+                portable.browser.starts_with("browser/"),
+                "browser executable must be under browser/"
+            );
+            for p in [
+                portable.python.as_str(),
+                portable.browser.as_str(),
+                "launcher-bin/python",
+                "launcher-bin/python3",
+                "launcher-bin/trafilatura",
+                "launcher-bin/chromium",
+            ] {
+                let r = m
+                    .files
+                    .get(p)
+                    .ok_or_else(|| anyhow::anyhow!("missing Portable executable: {p}"))?;
+                ensure!(r.executable, "Portable executable is not executable: {p}");
+            }
+        }
+        _ => unreachable!(),
     }
     Ok(())
 }
