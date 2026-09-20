@@ -47,7 +47,8 @@ def main():
     )
     artifact = args.artifact.resolve()
     checks = []
-    with tempfile.TemporaryDirectory(prefix="real-smoke-", dir=ROOT / "build") as temp:
+    # Chromium's Unix socket path must fit even when the checkout path is long.
+    with tempfile.TemporaryDirectory(prefix="omp-smoke-", dir="/tmp") as temp:
         base = Path(temp)
         home = base / "home"
         home.mkdir()
