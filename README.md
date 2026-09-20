@@ -84,10 +84,10 @@ speech, embedding, or other model weights are bundled.
 
 | Native target | Lite verification | Portable verification |
 | --- | --- | --- |
-| darwin-arm64 | GitHub build and release passed | Local native build and offline smoke checks |
-| darwin-x64 | GitHub build and release passed | Configured; native verification still needed |
-| linux-arm64 | GitHub build and release passed | Local `act` workflow and minimal offline Ubuntu 24.04 container |
-| linux-x64 | GitHub build and release passed | Configured; native verification still needed |
+| darwin-arm64 | GitHub build and release passed | GitHub build and release passed; local native checks |
+| darwin-x64 | GitHub build and release passed | GitHub build and release passed |
+| linux-arm64 | GitHub build and release passed | GitHub build and release passed; minimal offline Ubuntu 24.04 check |
+| linux-x64 | GitHub build and release passed | GitHub build and release passed |
 
 Windows and musl need their own launcher/runtime work and are rejected clearly.
 One portable file is produced **per operating system and architecture**.
@@ -137,7 +137,7 @@ See [docs/VALIDATION.md](docs/VALIDATION.md) for the evidence and limits, and
 
 ## Automated releases
 
-`.github/workflows/release.yml` checks the latest stable upstream release hourly
+`.github/workflows/release.yml` checks the latest stable upstream release hourly at minute 49
 and can also be run from Actions using **Release OMP Lite and Portable**. Push the workflow
 to the repository's default branch and enable Actions. No personal access token
 is needed on GitHub; only the publication job receives `contents: write`.
@@ -163,10 +163,15 @@ interrupted drafts can be retried.
 
 For a GitHub dry run, leave the manual workflow's **publish** checkbox clear.
 This builds and uploads workflow artifacts without creating a release.
-Lite has passed all four hosted runners and publication. Portable has passed
-local macOS ARM64 and Linux ARM64 checks; the eight-build GitHub workflow and
-Portable x64 builds still need their first run. See the validation document for
-the exact local evidence.
+Both editions have passed all four hosted runners and publication. The
+[combined 18.2.6 release](https://github.com/nikvdp/omp-portable/releases/tag/omp-v18.2.6-r2)
+contains eight executables and their SHA-256 files. See
+[validation evidence](docs/VALIDATION.md) for hosted and local checks.
+
+Avoid changing workflow files on the default branch while a release is building.
+GitHub can reject release creation from an older workflow revision with HTTP 403,
+even with `contents: write`. If this happens, rerun from current `main`; do not
+retarget the release to a commit that was not built.
 
 ## Git history
 

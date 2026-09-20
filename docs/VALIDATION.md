@@ -18,6 +18,24 @@ so it exercises the distribution's digest check. All 22 lifecycle/platform tests
 passed on the hosted platforms. The published release now contains four
 executables and four SHA-256 files; its build reports and manifests were removed.
 
+## Hosted combined release
+
+The [eight-build release workflow](https://github.com/nikvdp/omp-portable/actions/runs/35500466819)
+passed for Lite and Portable on Linux ARM64/x64 and macOS ARM64/x64.
+It published [OMP 18.2.6 packaging revision 2](https://github.com/nikvdp/omp-portable/releases/tag/omp-v18.2.6-r2)
+from commit `6c44c349a2acac1b80f82e9994d2f54f9a3a722c`.
+All 16 assets were uploaded: eight executables and eight SHA-256 files, with no
+build reports or manifests. Each downloaded checksum matched GitHub's digest of
+the corresponding executable.
+
+The hosted Linux fix puts smoke state under a short private directory in `/tmp`.
+Long checkout-relative temporary paths exceeded Chromium's Unix socket pathname
+limit. Network guards and browser protocol assertions were unchanged.
+
+After all eight builds passed, account billing blocked the publisher from
+starting. Making the repository public allowed the publisher-only rerun to
+complete using the existing verified artifacts and the workflow's own token.
+
 ## Local Portable verification
 
 Portable was built and exercised on macOS ARM64 and Linux ARM64:
@@ -72,10 +90,13 @@ remain required. Missing artifacts, failed smoke reports, mismatched checksums,
 and changed reviewed upstream source bytes reject publication. Fixture checks
 are not evidence of native execution on additional platforms.
 
-The new workflow requires Lite and Portable on all four platforms before publishing
-`omp-v<upstream-version>-r2`. Portable x64 builds and the complete eight-build
-GitHub publication path have not run yet. Portable changes remain local; no
-Portable release was published.
+The hourly workflow is active on the default branch at minute 49. Its actual
+discovery code recognized the live complete release and emitted `needed=false`,
+preventing duplicate builds. A synthetic next-version check selected a new
+upstream tag and updated all four asset pins; changed integration source bytes
+correctly stopped preparation without modifying the lock. These checks verify
+discovery behavior, not a future upstream build. A clock-triggered scheduled run
+had not yet been observed when this evidence was recorded.
 
 Full, Windows, musl, signing identities/notarization, and a full audit of licenses
 inside the official upstream OMP binary remain outside the implemented scope.
