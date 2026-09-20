@@ -1,7 +1,7 @@
 name: Release OMP Lite and Portable
 on:
   schedule:
-    - cron: '23 * * * *'
+    - cron: '49 * * * *'
   workflow_dispatch:
     inputs:
       publish:
