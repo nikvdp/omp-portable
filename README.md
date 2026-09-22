@@ -153,17 +153,25 @@ extraction integration code. If a reviewed file changes, the run fails with
 versions stay pinned separately. The workflow tracks the latest stable OMP
 release, not every historical release.
 
-All eight builds—Lite and Portable on four native platforms—must pass Rust
-checks, strict offline smoke tests, and extraction tests before publication.
-The final job validates binaries, checksums, manifests, build reports, and the
-Portable dependency-lock digest. Manifests and reports stay in workflow artifacts;
-only eight executables and eight `.sha256` files are uploaded to the release.
-Publication uses a draft so incomplete uploads aren't published.
+Lite is the mandatory product: every Lite build must pass its offline smoke and
+extraction tests before publication. Portable is best-effort. Its build jobs
+run with `continue-on-error`, so a Portable failure or missing artifact never
+blocks a Lite release; the publish job validates whatever Portable artifacts
+exist and records the ones it skipped. Scheduled duplicate detection requires
+only the Lite asset set.
 
-The current packaging revision produces `omp-v<upstream-version>-r2`. Existing
-Lite-only `omp-v<upstream-version>` releases remain unchanged and do not prevent
-the new combined release. Complete published revision-2 releases are skipped;
-interrupted drafts can be retried.
+The final job validates binaries, checksums, manifests, build reports, and the
+Portable dependency-lock digest. Manifests and reports stay in workflow
+artifacts; only the executables that passed and their `.sha256` files are
+uploaded to the release. Publication uses a draft so incomplete uploads aren't
+published.
+
+The current packaging revision produces `omp-v<upstream-version>-r<N>`; bump
+`RELEASE_REVISION` (or run `make release`, which does it for you) when a
+complete published release would otherwise be skipped. Existing Lite-only
+`omp-v<upstream-version>` releases remain unchanged and do not prevent the new
+combined release. Complete published Lite sets are skipped; interrupted drafts
+can be retried.
 
 For a GitHub dry run, leave the manual workflow's **publish** checkbox clear.
 This builds and uploads workflow artifacts without creating a release.

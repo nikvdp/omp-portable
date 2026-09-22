@@ -79,6 +79,8 @@ jobs:
             target: darwin-x64
             edition: portable
     runs-on: ${{ matrix.runner }}
+    # Lite must always ship; a Portable build failure must not block the release.
+    continue-on-error: ${{ matrix.edition == 'portable' }}
     timeout-minutes: 90
     env:
       RUSTUP_TOOLCHAIN: 1.98.1

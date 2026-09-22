@@ -19,11 +19,11 @@ def downstream_tag(upstream_tag):
     return f"omp-{upstream_tag}-r{RELEASE_REVISION}"
 
 
-def release_asset_names(upstream_tag, targets, suffixes=("", ".sha256")):
+def release_asset_names(upstream_tag, targets, suffixes=("", ".sha256"), editions=EDITIONS):
     version = upstream_tag.removeprefix("v")
     return {
         f"omp-{edition}-{version}-{target}{suffix}"
-        for edition in EDITIONS
+        for edition in editions
         for target in targets
         for suffix in suffixes
     }
@@ -72,9 +72,9 @@ def prepare(check_existing):
         if published:
             assets = release_assets(repo, published["id"])
             names = {asset["name"] for asset in assets}
-            expected = release_asset_names(tag, lock["assets"])
+            expected = release_asset_names(tag, lock["assets"], editions=("lite",))
             missing = expected - names
-            unexpected = names - expected
+            unexpected = names - release_asset_names(tag, lock["assets"])
             if missing or unexpected:
                 raise RuntimeError(
                     f"Published release {release_tag} has the wrong asset set; "
@@ -121,13 +121,17 @@ def publish(dry_run):
         (ROOT / "config/portable-lock.json").read_bytes()
     ).hexdigest()
     paths = []
+    skipped = []
     version = lock["tag"].removeprefix("v")
     for edition in EDITIONS:
         for target in lock["assets"]:
             binary = ROOT / "dist" / f"omp-{edition}-{version}-{target}"
-            report = json.loads(
-                binary.with_name(binary.name + ".build.json").read_text()
-            )
+            report_path = binary.with_name(binary.name + ".build.json")
+            if edition == "portable" and not binary.is_file():
+                # Portable is best-effort: never block a Lite release on it.
+                skipped.append(binary.name)
+                continue
+            report = json.loads(report_path.read_text())
             manifest = json.loads(
                 binary.with_name(binary.name + ".manifest.json").read_text()
             )
@@ -159,14 +163,28 @@ def publish(dry_run):
                 or manifest["upstream"]["tag"] != lock["tag"]
                 or manifest["upstream"]["sha256"] != lock["assets"][target]["sha256"]
             ):
+                if edition == "portable":
+                    # Best-effort: record and continue; Lite must still ship.
+                    skipped.append(binary.name)
+                    continue
                 raise RuntimeError(f"Invalid release artifact: {binary.name}")
             checksum = binary.with_name(binary.name + ".sha256")
             if checksum.read_text() != f"{digest}  {binary.name}\n":
                 raise RuntimeError(f"Invalid checksum sidecar: {binary.name}")
             paths.extend([binary, checksum])
+    if skipped:
+        print(
+            f"Best-effort Portable skipped {len(skipped)} artifact(s): "
+            + ", ".join(skipped),
+            flush=True,
+        )
+    lite_count = sum(1 for p in paths if p.name.startswith("omp-lite-")) // 2
+    if lite_count < len(lock["assets"]):
+        raise RuntimeError("Lite artifacts missing; refusing to publish")
+    portable_count = len(paths) // 2 - lite_count
     print(
-        f"Verified {len(EDITIONS) * len(lock['assets'])} native builds, "
-        f"{len(paths)} public release files",
+        f"Verified {lite_count} Lite and {portable_count} Portable "
+        f"builds, {len(paths)} public release files",
         flush=True,
     )
     if dry_run:
@@ -193,8 +211,12 @@ def publish(dry_run):
             f"OMP Lite + Portable {lock['tag']} (packaging r{RELEASE_REVISION})",
             "--notes",
             f"Native Lite and Portable builds of https://github.com/{lock['repo']}/releases/tag/{lock['tag']}. "
-            "All eight edition/target builds passed offline smoke and extraction tests. "
-            "macOS binaries are ad-hoc signed, not notarized. Full is not included. "
+            + (
+                "All eight edition/target builds passed offline smoke and extraction tests. "
+                if not skipped
+                else f"Lite passed offline smoke and extraction tests; Portable best-effort skipped {len(skipped)} build(s). "
+            )
+            + "macOS binaries are ad-hoc signed, not notarized. Full is not included. "
             "Restore executable permissions with chmod +x after downloading.",
         )
     else:
