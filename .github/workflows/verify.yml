@@ -43,8 +43,15 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+      - name: Install musl toolchain for static Linux launchers
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+        if: startsWith(matrix.target, 'linux-')
       - name: Install explicit Rust toolchain
-        run: rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
+          if [ "${{ matrix.target }}" != "${{ matrix.target#linux- }}" ]; then
+            rustup target add --toolchain 1.98.1 ${{ matrix.target == 'linux-x64' && 'x86_64-unknown-linux-musl' || 'aarch64-unknown-linux-musl' }}
+          fi
       - name: Check Rust source and format
         run: |
           cargo fmt --all --check

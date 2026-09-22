@@ -13,8 +13,10 @@ The upstream lock retains one reviewed release and four official binary hashes:
 Linux x64/Arm64 and macOS Intel/Apple silicon. Assets and reviewed upstream source
 files are verified before use. The official executable remains byte-identical.
 Lite bundles that executable without optional tools. Portable adds locked Python,
-trafilatura, and browser payloads. Full, model weights, and Windows/musl support
-remain unimplemented.
+trafilatura, and browser payloads. Full and model weights remain unimplemented.
+Linux launchers compile statically against musl so shipped Linux executables do
+not depend on the build host's glibc; the official OMP binary stays untouched
+and dynamically linked. Windows remains unsupported.
 
 ## Payload format
 

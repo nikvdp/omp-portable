@@ -63,12 +63,16 @@ transferred from the Internet.
 
 ## Linux
 
-Install Python 3.11+, Rust/Cargo, a C compiler and Git, then use the same
-`./build.sh` and `./dist/omp-lite` commands. The builder supports native glibc
-Linux x64/Arm64 hosts. It does not label musl/Alpine supported.
+Install Python 3.11+, Rust/Cargo, a C compiler, Git, and on Linux `musl-tools`
+(for the static launcher), then use the same `./build.sh` and `./dist/omp-lite`
+commands. The builder supports native Linux x64/Arm64 hosts. The Linux launcher
+is statically linked against musl, so the finished executable does not depend on
+the host glibc version and runs wherever the official OMP binary runs (glibc 2.17
+or newer). The bundled official OMP binary itself remains dynamically linked.
 Portable builds also need `dpkg-deb` to extract the pinned browser libraries.
-The Portable Linux runtime baseline is Ubuntu 24.04 with glibc 2.39 or newer;
-other Linux distributions have not been verified.
+The Portable browser bundles Ubuntu 24.04 runtime libraries; on older
+distributions the browser component may still require a newer userspace, while
+OMP itself and bundled Python continue to work.
 
 ## What is bundled
 

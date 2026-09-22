@@ -151,10 +151,12 @@ def main(argv=None):
     print(json.dumps(plan, indent=2), flush=True)
     if args.plan:
         return
-    env = cargo_environment()
+    env = cargo_environment(target)
     for tool in ["cargo", "rustc", "cc", "git"]:
         if not shutil.which(tool, path=env["PATH"]):
             parser.error(f"Missing build tool: {tool}. See README.md prerequisites.")
+    if target.startswith("linux-") and not shutil.which("musl-gcc", path=env["PATH"]):
+        parser.error("Missing musl-gcc; install musl-tools (static Linux launcher)")
     if target.startswith("darwin-"):
         for tool in ["/usr/bin/codesign", "/usr/bin/sandbox-exec"]:
             if not Path(tool).exists():

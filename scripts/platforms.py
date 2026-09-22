@@ -31,10 +31,16 @@ def cache_base(home, target=None, xdg=None):
     return Path(xdg or Path(home) / ".cache") / "omp-portable/dist"
 
 
-def cargo_environment():
+def cargo_environment(target=None):
     env = os.environ.copy()
     env["CARGO_TARGET_DIR"] = str(ROOT / "target")
     cargo_bin = Path.home() / ".cargo/bin"
     if cargo_bin.is_dir():
         env["PATH"] = str(cargo_bin) + os.pathsep + env.get("PATH", "")
+    if (target or "").startswith("linux-"):
+        # Static musl launcher: the binary must not depend on host glibc.
+        # zstd-sys compiles C, so it needs the musl cross compiler as CC.
+        rust = TARGETS[target]["rust"]
+        env["CC_" + rust.replace("-", "_")] = "musl-gcc"
+        env["CARGO_TARGET_" + rust.upper().replace("-", "_") + "_LINKER"] = "musl-gcc"
     return env
