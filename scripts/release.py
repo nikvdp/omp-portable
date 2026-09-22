@@ -12,7 +12,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 EDITIONS = ("lite", "portable")
-RELEASE_REVISION = 2
+RELEASE_REVISION = 3
 
 
 def downstream_tag(upstream_tag):
