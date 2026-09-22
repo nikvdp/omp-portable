@@ -49,7 +49,7 @@ jobs:
       - name: Install explicit Rust toolchain
         run: |
           rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
-          if [ "${{ matrix.target }}" != "${{ matrix.target#linux- }}" ]; then
+          if [[ "${{ matrix.target }}" == linux-* ]]; then
             rustup target add --toolchain 1.98.1 ${{ matrix.target == 'linux-x64' && 'x86_64-unknown-linux-musl' || 'aarch64-unknown-linux-musl' }}
           fi
       - name: Check Rust source and format
