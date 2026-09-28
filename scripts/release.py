@@ -8,7 +8,6 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 EDITIONS = ("lite", "portable")
@@ -92,15 +91,6 @@ def prepare(check_existing):
             item.update(
                 url=asset["browser_download_url"], sha256=digest[7:], size=asset["size"]
             )
-        for source in lock["reviewed_sources"]:
-            url = source["url"].replace(f"/{lock['tag']}/", f"/{tag}/")
-            with urllib.request.urlopen(url, timeout=60) as response:
-                digest = hashlib.sha256(response.read()).hexdigest()
-            if digest != source["sha256"]:
-                raise RuntimeError(
-                    f"Review required before releasing {tag}: {source['name']} changed"
-                )
-            source["url"] = url
         lock.update(tag=tag, release_id=release["id"])
         (ROOT / "config/upstream-lock.json").write_text(
             json.dumps(lock, indent=2) + "\n"

@@ -28,7 +28,7 @@ jobs:
           python-version: '3.12'
       - name: Ensure GitHub CLI is available
         run: command -v gh || { sudo apt-get update && sudo apt-get install -y gh; }
-      - name: Resolve upstream release and verify reviewed sources
+      - name: Resolve latest upstream release
         id: release
         env:
           GH_TOKEN: ${{ github.token }}

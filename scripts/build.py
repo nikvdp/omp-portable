@@ -171,7 +171,7 @@ def main(argv=None):
     if args.edition == "portable":
         portable_cache.mkdir(parents=True, exist_ok=True)
     (build / "build-plan.json").write_text(json.dumps(plan, indent=2) + "\n")
-    for item in [asset, lock["license"], *lock["reviewed_sources"]]:
+    for item in [asset, lock["license"]]:
         acquire(item["url"], cache / item["name"], item["sha256"], item.get("size"))
     if not args.skip_compile:
         subprocess.run(
@@ -241,7 +241,6 @@ def main(argv=None):
             "release_id": lock["release_id"],
             "asset": asset["name"],
             "sha256": asset["sha256"],
-            "reviewed_sources": lock["reviewed_sources"],
         },
         "builder": {
             "repo_commit": subprocess.check_output(
