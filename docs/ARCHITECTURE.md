@@ -9,9 +9,9 @@ resolves a data-driven plan, and builds with an explicit Rust target. Each
 target and edition have separate staging paths; Cargo tools are target-scoped.
 Cross-building is rejected. Optional components also use native smoke checks.
 
-The upstream lock retains one reviewed release and four official binary hashes:
-Linux x64/Arm64 and macOS Intel/Apple silicon. Assets and reviewed upstream source
-files are verified before use. The official executable remains byte-identical.
+The upstream lock records the latest release and four official binary hashes:
+Linux x64/Arm64 and macOS Intel/Apple silicon. Assets are verified before use.
+The official executable remains byte-identical.
 Lite bundles that executable without optional tools. Portable adds locked Python,
 trafilatura, and browser payloads. Full and model weights remain unimplemented.
 Linux launchers compile statically against musl so shipped Linux executables do
@@ -134,11 +134,9 @@ draft so interrupted uploads do not expose an incomplete release.
 
 ## Upstream and license review
 
-The lock records release ID, hashes/sizes and reviewed source files covering
-cache/profile resolution, updater routing, embedded addon extraction, Linux
-file locking, Python execution, helper discovery, browser launch, and extraction.
-New tags can reuse that review only when all reviewed source hashes
-remain identical; a changed file stops release preparation for human review.
+The lock records release ID, hashes, and sizes. Upstream source is not
+reviewed per release; the smoke tests verify cache/profile resolution, updater
+interception, Python, extraction, and browser launch against the built binary.
 Release LICENSE, the downstream license, and notices from locked Cargo dependency
 sources are included. Portable adds Python, browser, wheel, and Ubuntu package
 notices. Unknown Cargo license expressions fail builds. A full audit of every

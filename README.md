@@ -109,8 +109,8 @@ private helpers and cache; the private `omp` shim always starts this distributio
 Portable sets a default `PUPPETEER_EXECUTABLE_PATH` and Python bytecode cache
 location, preserving nonempty explicit overrides. Browser libraries and font
 settings apply only to the browser process, not OMP or Python.
-All `omp update` variants are intercepted; rebuild with a reviewed newer upstream
-lock to update. Nothing replaces global OMP.
+All `omp update` variants are intercepted; rebuild against a newer upstream
+release to update. Nothing replaces global OMP.
 
 ## Inspect and diagnose
 
@@ -146,10 +146,9 @@ and can also be run from Actions using **Release OMP Lite and Portable**. Push t
 to the repository's default branch and enable Actions. No personal access token
 is needed on GitHub; only the publication job receives `contents: write`.
 
-The workflow resolves upstream asset hashes from GitHub and checks the reviewed
-source files against the checked-in lock, including Python, browser, and
-extraction integration code. If a reviewed file changes, the run fails with
-`Review required`; review and update the lock before retrying. Optional component
+The workflow resolves the latest upstream release and pins its asset hashes from
+GitHub. Compatibility with upstream changes is enforced by the smoke tests, which
+run the built binary. Optional component
 versions stay pinned separately. The workflow tracks the latest stable OMP
 release, not every historical release.
 

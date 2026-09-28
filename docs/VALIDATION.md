@@ -86,9 +86,9 @@ C runtime paired.
 
 `actionlint` passed both workflows. Throwaway publication checks verified the
 binary/checksum-only public asset list and that internal reports and manifests
-remain required. Missing artifacts, failed smoke reports, mismatched checksums,
-and changed reviewed upstream source bytes reject publication. Fixture checks
-are not evidence of native execution on additional platforms.
+remain required. Missing artifacts, failed smoke reports, and mismatched
+checksums reject publication. Fixture checks are not evidence of native
+execution on additional platforms.
 
 The hourly workflow is active on the default branch at minute 49. Its actual
 discovery code recognized the live complete release and emitted `needed=false`,
