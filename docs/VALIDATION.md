@@ -7,10 +7,12 @@ below describe previously published builds, not the current extension fix.
 
 ## Extension runtime verification
 
-The macOS ARM64 Lite candidate passed 20 strict offline smoke checks, including
+The macOS ARM64 Lite artifact passed 20 strict offline smoke checks, including
 a symlinked extension with nested SDK imports, wildcard TUI imports, and access
 to the live host registry. All 22 lifecycle/platform tests passed after adapting
-the launcher fixtures to the source-entry contract.
+the launcher fixtures to the source-entry contract. The final Portable artifact
+passed 25 strict offline checks, including Python, HTML extraction, Chromium,
+and extension imports.
 
 The actual `side.ts` and `session-injector.ts` extensions ran against the packaged
 runtime on macOS ARM64 and Linux amd64. A scripted offline provider triggered
@@ -19,9 +21,10 @@ and delivered its result back to the parent. Linux used an Ubuntu 24.04 amd64
 container with networking disabled. This Linux check exercised the runtime,
 not a finished Linux self-extracting artifact.
 
-On macOS, all three reported extensions loaded together, including `model-ladder`
-and its SQLite state under an isolated HOME. The real `/side` command started
-a side agent. No paid model requests were used. Intel macOS and Linux ARM64
+All three reported extensions loaded together on macOS ARM64 and Linux amd64,
+including `model-ladder` and its SQLite state under an isolated HOME. The finished
+macOS Lite artifact also passed the real fork/yield scenario and started an agent
+through `/side`. No paid model requests were used. Intel macOS and Linux ARM64
 execution of this packaging change has not been verified locally.
 
 Clippy and Python syntax checks passed. Workflow syntax passed with ShellCheck
