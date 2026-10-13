@@ -303,6 +303,8 @@ def main(argv=None):
             cmd.append("--strict-host")
         try:
             subprocess.run(cmd, cwd=ROOT, env=env, check=True)
+            checks = json.loads((build / "smoke-results.json").read_text())
+            result["startup"] = next(check["startup"] for check in checks if "startup" in check)
         except subprocess.CalledProcessError:
             result["smoke"] = "failed"
             resultfile.write_text(json.dumps(result, indent=2) + "\n")

@@ -17,6 +17,8 @@ from platforms import detect_target, cache_base
 
 ROOT = Path(__file__).resolve().parents[1]
 
+STARTUP_LIMITS = {"cold_seconds": 30, "cached_seconds": 3}
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
@@ -70,21 +72,39 @@ def main():
 
         def run(*argv, expected=0):
             print(f"Smoke check {len(checks) + 1}: {' '.join(argv)}", flush=True)
+            started = time.monotonic()
             p = offline.run(
                 [str(exe), *argv],
                 cwd=cwd,
                 env=env,
                 capture_output=True,
                 text=True,
-                timeout=300 if not checks else 60,
+                timeout=60,
             )
             assert p.returncode == expected, (argv, p.returncode, p.stdout, p.stderr)
             checks.append(
-                {"command": list(argv), "exit": p.returncode, "stdout": p.stdout[:3000]}
+                {"command": list(argv), "exit": p.returncode, "stdout": p.stdout[:3000],
+                 "seconds": round(time.monotonic() - started, 3)}
             )
             return p.stdout
 
         assert version in run("--version")
+        cold_seconds = checks[-1]["seconds"]
+        print(f"Startup: cold {cold_seconds:.3f}s (limit {STARTUP_LIMITS['cold_seconds']}s)", flush=True)
+        assert cold_seconds <= STARTUP_LIMITS["cold_seconds"], (
+            "Cold startup exceeds release limit", cold_seconds, STARTUP_LIMITS
+        )
+        cached_seconds = []
+        for _ in range(3):
+            assert version in run("--version")
+            cached_seconds.append(checks[-1]["seconds"])
+        print(f"Startup: cached {cached_seconds}s (limit {STARTUP_LIMITS['cached_seconds']}s each)", flush=True)
+        assert max(cached_seconds) <= STARTUP_LIMITS["cached_seconds"], (
+            "Cached startup exceeds release limit", cached_seconds, STARTUP_LIMITS
+        )
+        startup = {"cold_seconds": cold_seconds, "cached_seconds": cached_seconds,
+                   "limits": STARTUP_LIMITS}
+        checks.append({"startup": startup})
         assert "COMMANDS" in run("--help")
         assert "off" in run("config", "get", "memory.backend")
         speech = json.loads(run("setup", "speech", "--check", "--json", expected=1))
@@ -459,6 +479,7 @@ def main():
                         browser.kill()
                         browser.wait()
         # Direct private shim is the same distribution, even beside a fake host omp.
+        started = time.monotonic()
         p = offline.run(
             [str(root / "launcher-bin/omp"), "--version"],
             env=env,
@@ -468,11 +489,17 @@ def main():
             timeout=30,
         )
         assert p.returncode == 0 and version in p.stdout, (p.stdout, p.stderr)
+        shim_seconds = time.monotonic() - started
+        assert shim_seconds <= STARTUP_LIMITS["cached_seconds"], (
+            "Private shim startup exceeds release limit", shim_seconds, STARTUP_LIMITS
+        )
+        startup["shim_seconds"] = round(shim_seconds, 3)
         checks.append(
             {
                 "command": ["private-shim", "--version"],
                 "exit": p.returncode,
                 "stdout": p.stdout,
+                "seconds": round(shim_seconds, 3),
             }
         )
         # Agent initialization and shell execution through upstream's actual RPC interface.
