@@ -7,7 +7,7 @@ use std::{
     env,
     ffi::OsString,
     fs::{self, File, OpenOptions},
-    io::{Read, Seek, SeekFrom, Write},
+    io::{BufReader, Read, Seek, SeekFrom, Write},
     os::unix::{
         fs::{OpenOptionsExt, PermissionsExt},
         process::CommandExt,
@@ -22,7 +22,8 @@ fn regular(p: &Path) -> Result<fs::Metadata> {
 }
 fn verify(root: &Path) -> Result<Manifest> {
     regular(&root.join("manifest.json"))?;
-    let m: Manifest = serde_json::from_reader(File::open(root.join("manifest.json"))?)?;
+    let m: Manifest =
+        serde_json::from_reader(BufReader::new(File::open(root.join("manifest.json"))?))?;
     validate_manifest(&m)?;
     ensure!(
         m.target == sfx_format::native_target(),
@@ -52,7 +53,7 @@ fn private_dir(p: &Path) -> Result<()> {
     fs::set_permissions(p, fs::Permissions::from_mode(0o700))?;
     Ok(())
 }
-fn extract(exe: &Path) -> Result<PathBuf> {
+fn extract(exe: &Path) -> Result<(PathBuf, Manifest)> {
     let mut f = File::open(exe)?;
     let footer = Footer::read(&mut f)?;
     // Verify even when READY exists: an altered artifact must never reuse a good cache.
@@ -93,9 +94,9 @@ fn extract(exe: &Path) -> Result<PathBuf> {
             fs::read_to_string(root.join("READY"))? == id,
             "invalid READY marker; remove this distribution cache and retry"
         );
-        verify(&root)?;
+        let manifest = verify(&root)?;
         FileExt::unlock(&lock)?;
-        return Ok(root);
+        return Ok((root, manifest));
     }
     for e in fs::read_dir(&base)? {
         let e = e?;
@@ -112,7 +113,7 @@ fn extract(exe: &Path) -> Result<PathBuf> {
     }
     let tmp = base.join(format!("{id}.tmp.{}", std::process::id()));
     private_dir(&tmp)?;
-    let result = (|| -> Result<()> {
+    let result = (|| -> Result<Manifest> {
         f.seek(SeekFrom::Start(footer.offset))?;
         let dec = zstd::stream::read::Decoder::new((&mut f).take(footer.length))?;
         let mut ar = tar::Archive::new(dec);
@@ -152,7 +153,6 @@ fn extract(exe: &Path) -> Result<PathBuf> {
                 0o644
             };
             out.set_permissions(fs::Permissions::from_mode(mode))?;
-            out.sync_all()?;
             if seen.len() % 1000 == 0 {
                 eprintln!("omp-portable: extracted {} files", seen.len());
             }
@@ -168,20 +168,25 @@ fn extract(exe: &Path) -> Result<PathBuf> {
             .chain(std::iter::once(PathBuf::from("manifest.json")))
             .collect();
         ensure!(seen == expected, "unmanifested payload files");
+        // This cache is reconstructible; do not force a disk flush for every file.
+        // Reuse verifies every file, so an incomplete cache cannot execute silently.
         let mut ready = File::create(tmp.join("READY"))?;
         ready.write_all(id.as_bytes())?;
         ready.sync_all()?;
         File::open(&tmp)?.sync_all()?;
         fs::rename(&tmp, &root)?;
         File::open(&base)?.sync_all()?;
-        Ok(())
+        Ok(m)
     })();
-    if let Err(e) = result {
-        let _ = fs::remove_dir_all(tmp);
-        return Err(e);
-    }
+    let manifest = match result {
+        Ok(manifest) => manifest,
+        Err(e) => {
+            let _ = fs::remove_dir_all(tmp);
+            return Err(e);
+        }
+    };
     FileExt::unlock(&lock)?;
-    Ok(root)
+    Ok((root, manifest))
 }
 fn profiles(args: &[OsString]) -> BTreeSet<String> {
     // Precreate only safe candidate names. Upstream remains authoritative for argv
@@ -267,9 +272,7 @@ fn run() -> Result<()> {
         let manifest = verify(&root)?;
         (root, manifest)
     } else {
-        let root = extract(&exe)?;
-        let manifest: Manifest = serde_json::from_reader(File::open(root.join("manifest.json"))?)?;
-        (root, manifest)
+        extract(&exe)?
     };
     let invocation = if is_shim {
         Path::new(&argv0)
