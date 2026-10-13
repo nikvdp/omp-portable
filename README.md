@@ -136,6 +136,21 @@ says `smoke: failed`; existing files under `dist/` are preserved. `--skip-smoke`
 verification and is never used by the native verification workflow.
 `--skip-compile` reuses target-scoped tools; normal builds do not need either flag.
 
+### Shipping requirements
+
+Every shipped target and edition must pass startup performance checks on the
+finished executable: fresh-HOME `--version` within 30 seconds, three cached
+`--version` launches within 3 seconds each, and the private shim within 3 seconds.
+Cold startup includes extraction and verification, not just OMP execution.
+Build reports record these timings; publication rejects missing or failing
+startup evidence. These are native CI limits, not guarantees for every disk.
+
+Do not raise timeouts or performance limits to make a regression pass. A payload
+or launcher change must retain extension compatibility, checksum checks, and
+interrupted-extraction recovery, and meet both cold and cached startup limits.
+If it cannot, it is not shippable: fix it or explicitly agree a changed contract
+before proceeding. Passing functional tests alone is insufficient.
+
 The local Linux sandbox denies the abstract Unix socket operation that upstream
 uses for configuration-write locks. Normal smoke mode records that exact error
 only when the same packaged OMP runtime reproduces it without the launcher.

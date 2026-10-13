@@ -5,6 +5,50 @@ tree and a private Bun runtime. Portable adds Python, trafilatura, and a native
 browser. Full and model payloads are not implemented. The older hosted results
 below describe previously published builds, not the current extension fix.
 
+## Startup performance and shipping contract
+
+Packaging revision 4 was not acceptable: the complete package tree exposed a
+per-file disk flush and unbuffered manifest parsing, and a roughly 145-second
+local cold start was allowed through by raising the smoke timeout. A user then
+reported extraction lasting more than five minutes on Linux. A functional pass
+did not establish usable startup performance.
+
+The corrected launcher removes per-file flushes, buffers manifest parsing,
+reuses the verified manifest, copies through one 128 KiB buffer, and enables
+CPU-dispatched SHA-256 acceleration. Four bounded workers overlap independent
+file checks. Every payload and extracted-file checksum remains checked on every launch.
+The cache does not promise full power-loss durability; corrupt caches fail closed.
+
+Shippable means the finished target/edition executable passes all existing
+offline functionality, extension imports and shared registry checks, corruption
+rejection, concurrent extraction, and killed-extraction recovery **and**:
+
+- Fresh-HOME `--version`: at most 30 seconds including extraction and verification.
+- Three cached `--version` launches: at most 3 seconds each.
+- Private `omp` shim `--version`: at most 3 seconds.
+
+`scripts/smoke.py` enforces these limits in every native build and prints timings.
+Build reports retain startup evidence; `scripts/release.py` rejects missing,
+slow, or incomplete timing evidence even when `smoke` says `passed`. Do not raise
+limits or timeouts to hide a regression. Changing the shipping contract requires
+explicit user agreement, not a convenient CI adjustment. A fast small fixture
+does not substitute for timing the real release payload.
+
+On local macOS ARM64, the final Lite artifact measured 11.111 seconds cold,
+0.732/0.715/0.638 seconds cached, and 0.853 seconds for the private shim. All 24
+offline checks, 23 lifecycle/platform tests, 8 Rust tests, Clippy, and formatting
+passed. Throwaway publication checks accepted the exact timing boundaries and
+rejected missing evidence, slow cold startup, one slow cached sample, and a slow
+private shim. These are native CI bounds, not guarantees for every filesystem.
+Linux ARM64 Lite, built and run in a local Ubuntu 24.04 container, measured
+3.677 seconds cold and 0.390/0.373/0.375 seconds cached. Its private shim took
+0.249 seconds; all 24 strict offline checks and 23 lifecycle/platform tests passed.
+Linux amd64 and Intel macOS performance still require native hosted verification.
+The final macOS ARM64 Portable artifact measured 22.006 seconds cold,
+1.180/1.166/1.129 seconds cached, and 0.910 seconds for the private shim. Its 29
+strict offline checks passed, including Python, HTML extraction, Chromium,
+extension imports, and explicit browser override preservation.
+
 ## Extension runtime verification
 
 The macOS ARM64 Lite artifact passed 20 strict offline smoke checks, including

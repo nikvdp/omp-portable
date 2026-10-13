@@ -73,6 +73,21 @@ Existing corrupt distribution caches fail closed rather than deleting mutable
 on-demand runtime downloads. Digests detect corruption, not malicious same-user
 modification; public signing identities/notarization are not implemented.
 
+The extracted tree is a reconstructible cache, not user data. Extraction does
+not issue a disk flush for each file; only READY and the commit directories are
+synced. This preserves process-interruption recovery, but does not promise that
+every payload byte survives sudden power loss. Reuse still verifies every file
+and fails closed on incomplete or corrupt data. Manifest parsing is buffered,
+and the verified manifest is reused rather than parsed again.
+Extraction reuses one 128 KiB read/write buffer rather than making small writes
+for each chunk of large components.
+SHA-256 uses the checksum library's CPU-dispatched accelerated implementation,
+with its software fallback on unsupported CPUs. Payload and file digests are
+still recomputed on every launch; no size/mtime shortcut replaces byte checks.
+Four scoped workers share the manifest iterator and overlap independent file
+reads. The queue stores no copied paths or file data; every worker must finish
+successfully before execution. Any checksum or permission failure still aborts.
+
 The native shim derives the distribution from its own path and never resolves
 host `omp`. Outer and inner entry points block every `update` variant. Unix exec
 preserves arguments, current directory, terminal, streams, signals and exit
