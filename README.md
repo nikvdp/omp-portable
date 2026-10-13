@@ -136,20 +136,23 @@ says `smoke: failed`; existing files under `dist/` are preserved. `--skip-smoke`
 verification and is never used by the native verification workflow.
 `--skip-compile` reuses target-scoped tools; normal builds do not need either flag.
 
-### Shipping requirements
+### Performance review for changes
 
-Every shipped target and edition must pass startup performance checks on the
-finished executable: fresh-HOME `--version` within 30 seconds, three cached
-`--version` launches within 3 seconds each, and the private shim within 3 seconds.
-Cold startup includes extraction and verification, not just OMP execution.
-Build reports record these timings; publication rejects missing or failing
-startup evidence. These are native CI limits, not guarantees for every disk.
+Before changing packaging, extraction, or startup, measure the current finished
+executable with a fresh HOME, cached launches, and the private shim. After the
+change, repeat on the same machine with comparable conditions and the real
+payload. Record before-and-after timings and exercise affected functionality;
+passing small fixture tests alone does not establish a usable release.
 
-Do not raise timeouts or performance limits to make a regression pass. A payload
-or launcher change must retain extension compatibility, checksum checks, and
-interrupted-extraction recovery, and meet both cold and cached startup limits.
-If it cannot, it is not shippable: fix it or explicitly agree a changed contract
-before proceeding. Passing functional tests alone is insufficient.
+Investigate and fix material regressions before calling a change complete. Do
+not hide them by increasing timeouts, weakening integrity checks, or reporting
+only functional success. If a performance tradeoff is genuinely unavoidable,
+explain its user impact and get explicit agreement before accepting it.
+
+Smoke checks print timings and build reports retain them for review. Timings are
+measurements, not fixed pass/fail cutoffs or app runtime limits. A shippable change
+preserves the requested behavior, extension compatibility, integrity checks, and
+interrupted-extraction recovery without an unagreed material regression.
 
 The local Linux sandbox denies the abstract Unix socket operation that upstream
 uses for configuration-write locks. Normal smoke mode records that exact error

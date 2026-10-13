@@ -5,7 +5,7 @@ tree and a private Bun runtime. Portable adds Python, trafilatura, and a native
 browser. Full and model payloads are not implemented. The older hosted results
 below describe previously published builds, not the current extension fix.
 
-## Startup performance and shipping contract
+## Startup performance and regression review
 
 Packaging revision 4 was not acceptable: the complete package tree exposed a
 per-file disk flush and unbuffered manifest parsing, and a roughly 145-second
@@ -19,27 +19,29 @@ CPU-dispatched SHA-256 acceleration. Four bounded workers overlap independent
 file checks. Every payload and extracted-file checksum remains checked on every launch.
 The cache does not promise full power-loss durability; corrupt caches fail closed.
 
-Shippable means the finished target/edition executable passes all existing
-offline functionality, extension imports and shared registry checks, corruption
-rejection, concurrent extraction, and killed-extraction recovery **and**:
+For future packaging, extraction, or startup changes, measure the current finished
+executable before editing, then repeat after the change on the same machine with
+comparable conditions. Include fresh-HOME extraction, repeated cached launches,
+and the private shim using the real payload. Record both results and exercise
+the affected user-facing behavior; small fixtures are not performance evidence.
 
-- Fresh-HOME `--version`: at most 30 seconds including extraction and verification.
-- Three cached `--version` launches: at most 3 seconds each.
-- Private `omp` shim `--version`: at most 3 seconds.
+Investigate and fix material regressions before declaring completion. Do not
+increase timeouts, weaken integrity checks, or treat functional success as proof
+of acceptable performance. An unavoidable tradeoff requires an explanation of
+the user impact and explicit agreement before it is accepted.
 
-`scripts/smoke.py` enforces these limits in every native build and prints timings.
-Build reports retain startup evidence; `scripts/release.py` rejects missing,
-slow, or incomplete timing evidence even when `smoke` says `passed`. Do not raise
-limits or timeouts to hide a regression. Changing the shipping contract requires
-explicit user agreement, not a convenient CI adjustment. A fast small fixture
-does not substitute for timing the real release payload.
+`scripts/smoke.py` prints startup measurements and build reports retain them for
+review. There are no fixed performance cutoffs or timing-based publication
+rejections. Existing command timeouts remain safeguards against hung smoke
+checks, not app runtime limits or substitutes for before-and-after review.
+Shippable means the requested behavior works, existing compatibility and recovery
+checks pass, and no material performance regression is silently accepted.
 
 On local macOS ARM64, the final Lite artifact measured 11.111 seconds cold,
 0.732/0.715/0.638 seconds cached, and 0.853 seconds for the private shim. All 24
 offline checks, 23 lifecycle/platform tests, 8 Rust tests, Clippy, and formatting
-passed. Throwaway publication checks accepted the exact timing boundaries and
-rejected missing evidence, slow cold startup, one slow cached sample, and a slow
-private shim. These are native CI bounds, not guarantees for every filesystem.
+passed. These are observations on the measured machine, not shipping thresholds
+or guarantees for every filesystem.
 Linux ARM64 Lite, built and run in a local Ubuntu 24.04 container, measured
 3.677 seconds cold and 0.390/0.373/0.375 seconds cached. Its private shim took
 0.249 seconds; all 24 strict offline checks and 23 lifecycle/platform tests passed.
