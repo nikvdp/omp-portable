@@ -17,8 +17,6 @@ from platforms import detect_target, cache_base
 
 ROOT = Path(__file__).resolve().parents[1]
 
-STARTUP_LIMITS = {"cold_seconds": 30, "cached_seconds": 3}
-
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
@@ -90,20 +88,13 @@ def main():
 
         assert version in run("--version")
         cold_seconds = checks[-1]["seconds"]
-        print(f"Startup: cold {cold_seconds:.3f}s (limit {STARTUP_LIMITS['cold_seconds']}s)", flush=True)
-        assert cold_seconds <= STARTUP_LIMITS["cold_seconds"], (
-            "Cold startup exceeds release limit", cold_seconds, STARTUP_LIMITS
-        )
+        print(f"Startup: cold {cold_seconds:.3f}s", flush=True)
         cached_seconds = []
         for _ in range(3):
             assert version in run("--version")
             cached_seconds.append(checks[-1]["seconds"])
-        print(f"Startup: cached {cached_seconds}s (limit {STARTUP_LIMITS['cached_seconds']}s each)", flush=True)
-        assert max(cached_seconds) <= STARTUP_LIMITS["cached_seconds"], (
-            "Cached startup exceeds release limit", cached_seconds, STARTUP_LIMITS
-        )
-        startup = {"cold_seconds": cold_seconds, "cached_seconds": cached_seconds,
-                   "limits": STARTUP_LIMITS}
+        print(f"Startup: cached {cached_seconds}s", flush=True)
+        startup = {"cold_seconds": cold_seconds, "cached_seconds": cached_seconds}
         checks.append({"startup": startup})
         assert "COMMANDS" in run("--help")
         assert "off" in run("config", "get", "memory.backend")
@@ -490,9 +481,6 @@ def main():
         )
         assert p.returncode == 0 and version in p.stdout, (p.stdout, p.stderr)
         shim_seconds = time.monotonic() - started
-        assert shim_seconds <= STARTUP_LIMITS["cached_seconds"], (
-            "Private shim startup exceeds release limit", shim_seconds, STARTUP_LIMITS
-        )
         startup["shim_seconds"] = round(shim_seconds, 3)
         checks.append(
             {

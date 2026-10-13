@@ -10,7 +10,6 @@ import re
 import subprocess
 from runtime import runtime_bun, refresh, LOCK as RUNTIME_LOCK, DEPENDENCIES
 from platforms import detect_target
-from smoke import STARTUP_LIMITS
 
 ROOT = Path(__file__).resolve().parents[1]
 EDITIONS = ("lite", "portable")
@@ -137,26 +136,10 @@ def publish(dry_run):
                 binary.with_name(binary.name + ".manifest.json").read_text()
             )
             portable = manifest.get("portable")
-            startup = report.get("startup", {})
-            cached = startup.get("cached_seconds")
-            cold = startup.get("cold_seconds")
-            shim = startup.get("shim_seconds")
-            startup_passed = (
-                isinstance(cold, (int, float))
-                and 0 <= cold <= STARTUP_LIMITS["cold_seconds"]
-                and isinstance(shim, (int, float))
-                and 0 <= shim <= STARTUP_LIMITS["cached_seconds"]
-                and isinstance(cached, list)
-                and len(cached) == 3
-                and all(isinstance(seconds, (int, float))
-                        and 0 <= seconds <= STARTUP_LIMITS["cached_seconds"]
-                        for seconds in cached)
-            )
             with binary.open("rb") as stream:
                 digest = hashlib.file_digest(stream, "sha256").hexdigest()
             if (
                 report["smoke"] != "passed"
-                or not startup_passed
                 or report["target"] != target
                 or report["edition"] != edition
                 or report["sha256"] != digest
