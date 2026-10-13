@@ -14,6 +14,8 @@ use std::{
     },
     path::{Path, PathBuf},
     process::Command,
+    sync::Mutex,
+    thread,
 };
 fn regular(p: &Path) -> Result<fs::Metadata> {
     let m = fs::symlink_metadata(p)?;
@@ -29,19 +31,39 @@ fn verify(root: &Path) -> Result<Manifest> {
         m.target == sfx_format::native_target(),
         "payload target does not match this launcher"
     );
-    for (p, r) in &m.files {
-        let p = root.join(p);
-        let meta = regular(&p)?;
-        ensure!(
-            meta.len() == r.size && digest(File::open(&p)?)? == r.sha256,
-            "cached component mismatch: {}",
-            p.display()
-        );
-        ensure!(
-            (meta.permissions().mode() & 0o111 != 0) == r.executable,
-            "incorrect executable permissions"
-        );
-    }
+    let files = Mutex::new(m.files.iter());
+    thread::scope(|scope| -> Result<()> {
+        let workers: [_; 4] = std::array::from_fn(|_| {
+            scope.spawn(|| -> Result<()> {
+                loop {
+                    let next = files
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("verification queue poisoned"))?
+                        .next();
+                    let Some((p, r)) = next else {
+                        return Ok(());
+                    };
+                    let p = root.join(p);
+                    let meta = regular(&p)?;
+                    ensure!(
+                        meta.len() == r.size && digest(File::open(&p)?)? == r.sha256,
+                        "cached component mismatch: {}",
+                        p.display()
+                    );
+                    ensure!(
+                        (meta.permissions().mode() & 0o111 != 0) == r.executable,
+                        "incorrect executable permissions"
+                    );
+                }
+            })
+        });
+        for worker in workers {
+            worker
+                .join()
+                .map_err(|_| anyhow::anyhow!("verification worker panicked"))??;
+        }
+        Ok(())
+    })?;
     Ok(m)
 }
 fn private_dir(p: &Path) -> Result<()> {
@@ -119,6 +141,7 @@ fn extract(exe: &Path) -> Result<(PathBuf, Manifest)> {
         let mut ar = tar::Archive::new(dec);
         let mut seen = BTreeSet::new();
         let mut expanded = 0u64;
+        let mut buffer = [0u8; 131072];
         for item in ar.entries()? {
             let mut entry = item?;
             let p = entry.path()?.into_owned();
@@ -146,7 +169,13 @@ fn extract(exe: &Path) -> Result<(PathBuf, Manifest)> {
                 .create_new(true)
                 .mode(0o600)
                 .open(&dest)?;
-            std::io::copy(&mut entry, &mut out)?;
+            loop {
+                let n = entry.read(&mut buffer)?;
+                if n == 0 {
+                    break;
+                }
+                out.write_all(&buffer[..n])?;
+            }
             let mode = if entry.header().mode()? & 0o111 != 0 {
                 0o755
             } else {
