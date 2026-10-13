@@ -37,9 +37,11 @@ def collect(root, stage, rust_target, env):
     notices = [
         "# Third-party notices",
         "",
-        "The official OMP executable is redistributed byte-for-byte under its release LICENSE.",
-        "See OMP-LICENSE. Downstream launcher and packer: see LAUNCHER-LICENSE.",
-        "The following exact Rust dependency sources supply the additional notices.",
+        "OMP runs from its published package and locked production dependency tree.",
+        "See OMP-LICENSE and package-provided notices under runtime/node_modules.",
+        "See Bun-LICENSE.md for the native runtime and its linked libraries.",
+        "Downstream launcher and packer: see LAUNCHER-LICENSE.",
+        "The following exact Rust dependency sources supply additional notices.",
         "",
     ]
     for package in sorted(meta["packages"], key=lambda p: (p["name"], p["version"])):

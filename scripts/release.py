@@ -8,10 +8,12 @@ import os
 from pathlib import Path
 import re
 import subprocess
+from runtime import runtime_bun, refresh, LOCK as RUNTIME_LOCK, DEPENDENCIES
+from platforms import detect_target
 
 ROOT = Path(__file__).resolve().parents[1]
 EDITIONS = ("lite", "portable")
-RELEASE_REVISION = 3
+RELEASE_REVISION = 4
 
 
 def downstream_tag(upstream_tag):
@@ -92,6 +94,12 @@ def prepare(check_existing):
                 url=asset["browser_download_url"], sha256=digest[7:], size=asset["size"]
             )
         lock.update(tag=tag, release_id=release["id"])
+        from build import acquire
+
+        cache = ROOT / "build/upstream"
+        cache.mkdir(parents=True, exist_ok=True)
+        bun, _ = runtime_bun(detect_target(), cache, acquire)
+        refresh(tag, bun, os.environ.copy())
         (ROOT / "config/upstream-lock.json").write_text(
             json.dumps(lock, indent=2) + "\n"
         )
@@ -110,6 +118,8 @@ def publish(dry_run):
     portable_lock_sha256 = hashlib.sha256(
         (ROOT / "config/portable-lock.json").read_bytes()
     ).hexdigest()
+    runtime_lock_sha256 = hashlib.sha256(RUNTIME_LOCK.read_bytes()).hexdigest()
+    package_lock_sha256 = hashlib.sha256(DEPENDENCIES.read_bytes()).hexdigest()
     paths = []
     skipped = []
     version = lock["tag"].removeprefix("v")
@@ -151,7 +161,13 @@ def publish(dry_run):
                 )
                 or (edition == "lite" and "portable" in manifest)
                 or manifest["upstream"]["tag"] != lock["tag"]
-                or manifest["upstream"]["sha256"] != lock["assets"][target]["sha256"]
+                or report.get("runtime_lock_sha256") != runtime_lock_sha256
+                or report.get("package_lock_sha256") != package_lock_sha256
+                or manifest["upstream"]["runtime"]["package_lock_sha256"] != package_lock_sha256
+                or manifest["upstream"]["runtime"]["bun"] != {
+                    "version": json.loads(RUNTIME_LOCK.read_text())["version"],
+                    **json.loads(RUNTIME_LOCK.read_text())["assets"][target],
+                }
             ):
                 if edition == "portable":
                     # Best-effort: record and continue; Lite must still ship.

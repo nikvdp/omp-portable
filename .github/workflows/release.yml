@@ -46,6 +46,9 @@ jobs:
           path: |
             config/upstream-lock.json
             config/portable-lock.json
+            config/runtime-lock.json
+            config/runtime-package.json
+            config/runtime-bun.lock
           if-no-files-found: error
   build:
     needs: prepare

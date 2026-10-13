@@ -14,6 +14,7 @@ import urllib.request
 from licenses import collect
 from platforms import ROOT, TARGETS, detect_target, cargo_environment
 from packaging import binaries, package
+from runtime import stage_runtime, LOCK as RUNTIME_LOCK, DEPENDENCIES
 
 
 def sha(path):
@@ -138,8 +139,9 @@ def main(argv=None):
         "rust_target": cfg["rust"],
         "edition": args.edition,
         "upstream_tag": lock["tag"],
-        "asset": asset["name"],
-        "sha256": asset["sha256"],
+        "runtime_asset": json.loads(RUNTIME_LOCK.read_text())["assets"][target]["name"],
+        "runtime_lock_sha256": sha(RUNTIME_LOCK),
+        "package_lock_sha256": sha(DEPENDENCIES),
         "container": cfg["container"],
         "max_sfx_bytes": policy["max_sfx_bytes"],
     }
@@ -171,8 +173,8 @@ def main(argv=None):
     if args.edition == "portable":
         portable_cache.mkdir(parents=True, exist_ok=True)
     (build / "build-plan.json").write_text(json.dumps(plan, indent=2) + "\n")
-    for item in [asset, lock["license"]]:
-        acquire(item["url"], cache / item["name"], item["sha256"], item.get("size"))
+    item = lock["license"]
+    acquire(item["url"], cache / item["name"], item["sha256"], item.get("size"))
     if not args.skip_compile:
         subprocess.run(
             ["cargo", "build", "--locked", "--release", "--target", cfg["rust"]],
@@ -189,13 +191,13 @@ def main(argv=None):
         shutil.rmtree(stage)
     for folder in ("bin", "launcher-bin", "licenses"):
         (stage / folder).mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(cache / asset["name"], stage / "bin/omp.real")
+    runtime = stage_runtime(stage, target, cache, acquire, env, lock["tag"])
     shutil.copyfile(bins / "sfx-stub", stage / "launcher-bin/omp")
     if args.edition == "portable":
         for name in ("python", "python3", "trafilatura", "chromium"):
             shutil.copyfile(bins / "sfx-stub", stage / "launcher-bin" / name)
     if target.startswith("darwin-"):
-        # Re-sign renamed shims; never alter the official OMP executable.
+        # Re-sign renamed shims before recording their payload hashes.
         for name in ("omp", "python", "python3", "trafilatura", "chromium"):
             shim = stage / "launcher-bin" / name
             if not shim.exists():
@@ -240,7 +242,7 @@ def main(argv=None):
             "tag": lock["tag"],
             "release_id": lock["release_id"],
             "asset": asset["name"],
-            "sha256": asset["sha256"],
+            "runtime": runtime,
         },
         "builder": {
             "repo_commit": subprocess.check_output(
@@ -282,6 +284,8 @@ def main(argv=None):
         "sha256": sha(candidate),
         "size_bytes": candidate.stat().st_size,
         "smoke": "not-run",
+        "runtime_lock_sha256": plan["runtime_lock_sha256"],
+        "package_lock_sha256": plan["package_lock_sha256"],
     }
     if args.edition == "portable":
         result["portable_lock_sha256"] = plan["portable_lock_sha256"]
