@@ -9,14 +9,14 @@ resolves a data-driven plan, and builds with an explicit Rust target. Each
 target and edition have separate staging paths; Cargo tools are target-scoped.
 Cross-building is rejected. Optional components also use native smoke checks.
 
-The upstream lock records the latest release and four official binary hashes:
-Linux x64/Arm64 and macOS Intel/Apple silicon. Assets are verified before use.
-The official executable remains byte-identical.
-Lite bundles that executable without optional tools. Portable adds locked Python,
-trafilatura, and browser payloads. Full and model weights remain unimplemented.
-Linux launchers compile statically against musl so shipped Linux executables do
-not depend on the build host's glibc; the official OMP binary stays untouched
-and dynamically linked. Windows remains unsupported.
+The upstream lock records the release version. Both editions stage the complete
+published OMP source package and production dependency graph with a pinned native
+Bun runtime. `runtime-bun.lock` fixes package versions and integrity hashes;
+`runtime-lock.json` fixes Bun archives for Linux x64/Arm64 and macOS Intel/Apple
+silicon. Lifecycle scripts are disabled and builds use a frozen dependency lock.
+Portable adds locked Python, trafilatura, and browser payloads. Linux launchers
+compile statically against musl; Bun and native packages use the host's glibc.
+Windows remains unsupported.
 
 ## Payload format
 
@@ -52,7 +52,7 @@ malformed-command and out-of-bounds fixtures exercise the parser on Linux.
 The embedded Mac launcher is linked in a separate Cargo target directory so it
 cannot become the next build's shim and recursively accumulate old payloads.
 `launcher-bin/omp` is the small standalone launcher; it is signed before its
-hash is recorded. Upstream OMP is never re-signed or otherwise modified.
+hash is recorded. Published OMP source is included without patching or rebuilding.
 The format permits lazy virtual-memory mapping of the payload but extraction
 reads through bounded file streams; it does not allocate the archive in RAM.
 
@@ -79,7 +79,10 @@ preserves arguments, current directory, terminal, streams, signals and exit
 status. PATH and XDG_CACHE_HOME select private helpers and caches; HOME and OMP
 user-state selectors retain their incoming values. Portable adds default browser
 and Python bytecode-cache locations without replacing nonempty explicit overrides.
-Embedded OMP native addons use upstream's ordinary native namespace.
+OMP runs its published `src/cli.ts` under the private Bun executable. SDK modules,
+extensions, and worker hosts share the same on-disk package graph. This avoids
+the compiled upstream registry's partial wildcard coverage and duplicate host
+singletons. User extensions are neither copied nor rewritten by this builder.
 
 Profile cache candidates from environment/argv are precreated only for safe
 names. Upstream owns argv parsing; literal profile-looking tool arguments are
@@ -122,9 +125,9 @@ connection receives a permission denial; missing or ineffective network guards
 fail the test. Dead proxies are not used as evidence of offline operation.
 
 Both workflows cover Lite and Portable on all four native hosts. The release
-workflow polls upstream hourly and passes the same upstream and Portable locks
-to all eight builds. Lite is mandatory: every Lite build must pass before
-publication. Portable is best-effort with `continue-on-error`; the publish job
+workflow polls upstream hourly and passes the same upstream, runtime, package,
+and Portable locks to all eight builds. Lite is mandatory: every Lite build must
+pass before publication. Portable is best-effort with `continue-on-error`; the publish job
 validates the Portable artifacts that exist, records skipped ones, and refuses
 to publish only when a Lite artifact is missing or invalid. Reports and
 manifests remain internal validation inputs; public assets are executables and
@@ -134,10 +137,12 @@ draft so interrupted uploads do not expose an incomplete release.
 
 ## Upstream and license review
 
-The lock records release ID, hashes, and sizes. Upstream source is not
-reviewed per release; the smoke tests verify cache/profile resolution, updater
-interception, Python, extraction, and browser launch against the built binary.
-Release LICENSE, the downstream license, and notices from locked Cargo dependency
-sources are included. Portable adds Python, browser, wheel, and Ubuntu package
-notices. Unknown Cargo license expressions fail builds. A full audit of every
-dependency compiled inside upstream's binary remains outstanding.
+The locks record upstream release metadata, native Bun hashes and sizes, and
+production package integrity hashes. The smoke checks exercise configuration,
+profiles, symlinked extensions with nested SDK imports, shared host registry
+identity, TUI rendering, Python, extraction, and browser launch.
+Package-provided licenses and third-party notices remain in the complete payload;
+the release LICENSE, pinned Bun license, launcher notices, and Portable component
+notices are also included.
+Unknown Cargo license expressions fail builds. A full dependency license audit
+remains outstanding.

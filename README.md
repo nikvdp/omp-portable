@@ -1,10 +1,11 @@
 # Cross-platform OMP single-file builder
 
 Build a native, self-extracting OMP executable **on macOS or Linux**. The builder
-automatically detects Apple silicon, Intel Mac, Linux x64, or Linux Arm64 and
-bundles the matching official OMP release. It does not rebuild or modify OMP.
+detects Apple silicon, Intel Mac, Linux x64, or Linux Arm64 and bundles a pinned
+Bun runtime with the complete published OMP package and production dependencies.
+OMP source is not patched or rebuilt. Extensions use the same packages as the host.
 
-Lite bundles OMP only. Portable also bundles Python, trafilatura, and a browser.
+Lite bundles the OMP runtime. Portable also bundles Python, trafilatura, and a browser.
 Neither edition includes model weights or media helper tools.
 
 ## Build on your Mac
@@ -47,14 +48,14 @@ To build Portable instead, run:
 is required. Use an ordinary native terminal/Python on Apple silicon; a Python
 running through Rosetta identifies itself as Intel and builds the Intel target.
 
-The first build downloads the pinned official OMP binary and Rust dependencies,
+The first build downloads the pinned Bun runtime and locked OMP packages,
 compiles the launcher, embeds the payload, ad-hoc signs the outer Mac executable,
 checks its signature, and runs the finished artifact from a temporary directory
 with fresh state and outbound network access blocked. No developer signing
 account is needed for ad-hoc signing. This is not Apple notarization.
 
-Output is `dist/omp-lite-18.2.6-darwin-arm64` or
-`dist/omp-lite-18.2.6-darwin-x64`. `dist/omp-lite` points to the latest successful
+Output is `dist/omp-lite-18.10.3-darwin-arm64` or
+`dist/omp-lite-18.10.3-darwin-x64`. `dist/omp-lite` points to the latest successful
 native build. Copy the **versioned file** to another Mac of the same architecture.
 The destination needs no Rust, Python, Node, Bun, or installed OMP to launch it.
 If sharing through a service that strips executable permissions, restore them
@@ -66,9 +67,8 @@ transferred from the Internet.
 Install Python 3.11+, Rust/Cargo, a C compiler, Git, and on Linux `musl-tools`
 (for the static launcher), then use the same `./build.sh` and `./dist/omp-lite`
 commands. The builder supports native Linux x64/Arm64 hosts. The Linux launcher
-is statically linked against musl, so the finished executable does not depend on
-the host glibc version and runs wherever the official OMP binary runs (glibc 2.17
-or newer). The bundled official OMP binary itself remains dynamically linked.
+is statically linked against musl. Bundled Bun and native package dependencies
+use the host's glibc; their platform requirements apply to the finished artifact.
 Portable builds also need `dpkg-deb` to extract the pinned browser libraries.
 The Portable browser bundles Ubuntu 24.04 runtime libraries; on older
 distributions the browser component may still require a newer userspace, while
@@ -78,7 +78,7 @@ OMP itself and bundled Python continue to work.
 
 | Edition | Bundled content |
 | --- | --- |
-| Lite | Official OMP, native launcher, manifest, and license notices |
+| Lite | Native Bun, complete OMP package and production dependencies, launcher, manifest, and license notices |
 | Portable | Lite plus private Python 3.12, its standard library, trafilatura and its dependencies, and native Chromium |
 
 Portable includes the browser's Linux shared libraries and fonts. The host's
@@ -109,6 +109,11 @@ private helpers and cache; the private `omp` shim always starts this distributio
 Portable sets a default `PUPPETEER_EXECUTABLE_PATH` and Python bytecode cache
 location, preserving nonempty explicit overrides. Browser libraries and font
 settings apply only to the browser process, not OMP or Python.
+Extensions remain in your normal user or project directories, including symlinked
+directories. SDK imports resolve against the bundled package tree, including
+wildcard subpaths and nested imports. No host Bun, Node, npm, or global OMP is needed.
+Packages owned by an extension must still be installed with that extension;
+this builder does not infer or download undeclared third-party dependencies.
 All `omp update` variants are intercepted; rebuild against a newer upstream
 release to update. Nothing replaces global OMP.
 
@@ -133,8 +138,9 @@ verification and is never used by the native verification workflow.
 
 The local Linux sandbox denies the abstract Unix socket operation that upstream
 uses for configuration-write locks. Normal smoke mode records that exact error
-only when the unwrapped official binary reproduces it. `--strict-host`, used by
-the four-target workflow, treats it as a failure. Mac failures are never waived.
+only when the same packaged OMP runtime reproduces it without the launcher.
+`--strict-host`, used by the four-target workflow, treats it as a failure.
+Mac failures are never waived.
 
 See [docs/VALIDATION.md](docs/VALIDATION.md) for the evidence and limits, and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the macOS container design.
@@ -146,11 +152,11 @@ and can also be run from Actions using **Release OMP Lite and Portable**. Push t
 to the repository's default branch and enable Actions. No personal access token
 is needed on GitHub; only the publication job receives `contents: write`.
 
-The workflow resolves the latest upstream release and pins its asset hashes from
-GitHub. Compatibility with upstream changes is enforced by the smoke tests, which
-run the built binary. Optional component
-versions stay pinned separately. The workflow tracks the latest stable OMP
-release, not every historical release.
+The workflow resolves the latest stable upstream release and generates one
+production dependency lock for all build jobs. `config/runtime-bun.lock` pins
+package versions and integrity hashes; `config/runtime-lock.json` pins native Bun
+archives. Compatibility is enforced by offline extension and runtime smoke checks.
+Optional component versions stay pinned separately.
 
 Lite is the mandatory product: every Lite build must pass its offline smoke and
 extraction tests before publication. Portable is best-effort. Its build jobs

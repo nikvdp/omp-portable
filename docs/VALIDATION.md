@@ -1,8 +1,33 @@
 # Validation
 
-The current scope is Lite and Portable for OMP 18.2.6. Portable adds private
-Python, trafilatura, and a native browser. Full and model payloads are not
-implemented. No paid model requests were used in these checks.
+The current builder packages OMP 18.10.3 with its complete production dependency
+tree and a private Bun runtime. Portable adds Python, trafilatura, and a native
+browser. Full and model payloads are not implemented. The older hosted results
+below describe previously published builds, not the current extension fix.
+
+## Extension runtime verification
+
+The macOS ARM64 Lite candidate passed 20 strict offline smoke checks, including
+a symlinked extension with nested SDK imports, wildcard TUI imports, and access
+to the live host registry. All 22 lifecycle/platform tests passed after adapting
+the launcher fixtures to the source-entry contract.
+
+The actual `side.ts` and `session-injector.ts` extensions ran against the packaged
+runtime on macOS ARM64 and Linux amd64. A scripted offline provider triggered
+the real `fork_task` tool; its child inherited the conversation, called `yield`,
+and delivered its result back to the parent. Linux used an Ubuntu 24.04 amd64
+container with networking disabled. This Linux check exercised the runtime,
+not a finished Linux self-extracting artifact.
+
+On macOS, all three reported extensions loaded together, including `model-ladder`
+and its SQLite state under an isolated HOME. The real `/side` command started
+a side agent. No paid model requests were used. Intel macOS and Linux ARM64
+execution of this packaging change has not been verified locally.
+
+Clippy and Python syntax checks passed. Workflow syntax passed with ShellCheck
+disabled; the normal run reports existing SC2193 warnings for matrix expressions
+in both workflows. Throwaway publication fixtures accepted the complete Lite
+set and rejected a stale production dependency lock without remote writes.
 
 ## Hosted Lite builds and publication
 
@@ -98,14 +123,15 @@ correctly stopped preparation without modifying the lock. These checks verify
 discovery behavior, not a future upstream build. A clock-triggered scheduled run
 had not yet been observed when this evidence was recorded.
 
-Full, Windows, musl, signing identities/notarization, and a full audit of licenses
-inside the official upstream OMP binary remain outside the implemented scope.
+Full, Windows, musl, signing identities/notarization, and a full dependency license
+audit remain outside the implemented scope.
 Lite retains upstream's on-demand optional downloads; successful optional downloads
 were not tested here.
 
 ## Restricted-host config writes
 
 Some Linux sandboxes deny the abstract Unix socket upstream uses for config-write
-locks. Normal smoke mode records this limitation only when the untouched official
-binary reproduces the same error. `--strict-host` rejects it. The native Mac and
-local ARM64 workflow checks used strict mode; no config-write failure was waived.
+locks. Normal smoke mode records this limitation only when the same packaged OMP
+runtime reproduces the error without the launcher. `--strict-host` rejects it.
+The native Mac and local ARM64 workflow checks used strict mode; no config-write
+failure was waived.
