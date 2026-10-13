@@ -276,6 +276,15 @@ class Lifecycle(unittest.TestCase):
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("component mismatch", p.stderr)
 
+    def test_cached_same_size_source_corruption(self):
+        self.run_sfx()
+        source = self.root() / "runtime/cli.ts"
+        original = source.read_bytes()
+        source.write_bytes(bytes([original[0] ^ 1]) + original[1:])
+        p = self.run_sfx()
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("component mismatch", p.stderr)
+
     def test_truncated_footer(self):
         bad = self.dir / "bad"
         shutil.copy2(self.artifact, bad)
