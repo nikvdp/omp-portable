@@ -153,9 +153,13 @@ fn extract(exe: &Path) -> Result<PathBuf> {
             };
             out.set_permissions(fs::Permissions::from_mode(mode))?;
             out.sync_all()?;
+            if seen.len() % 1000 == 0 {
+                eprintln!("omp-portable: extracted {} files", seen.len());
+            }
         }
         // Drain decoder so truncated/trailing compressed data is not hidden by tar EOF.
         std::io::copy(&mut ar.into_inner(), &mut std::io::sink())?;
+        eprintln!("omp-portable: verifying {} extracted files", seen.len());
         let m = verify(&tmp)?;
         let expected: BTreeSet<_> = m
             .files
@@ -289,6 +293,20 @@ fn run() -> Result<()> {
             fs::create_dir_all(xdg.join("omp/profiles").join(p))?;
         }
         let mut cmd = Command::new(root.join("bin/omp.real"));
+        let entry = manifest
+            .upstream
+            .get("runtime")
+            .and_then(|r| r.get("entry"))
+            .context("missing OMP source entry")?
+            .as_str()
+            .context("invalid OMP source entry")?;
+        safe_path(Path::new(entry))?;
+        ensure!(
+            manifest.files.contains_key(entry),
+            "unmanifested OMP source entry"
+        );
+        cmd.arg("--no-env-file").arg(root.join(entry));
+        cmd.env_remove("PI_COMPILED").env_remove("PI_BUNDLED");
         cmd.env("XDG_CACHE_HOME", &xdg);
         cmd
     } else {
