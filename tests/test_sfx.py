@@ -55,6 +55,8 @@ class Lifecycle(unittest.TestCase):
         cls.stage = cls.base / "stage"
         (cls.stage / "bin").mkdir(parents=True)
         (cls.stage / "launcher-bin").mkdir()
+        (cls.stage / "runtime").mkdir()
+        (cls.stage / "runtime/cli.ts").write_text("fixture source entry\n")
         subprocess.run(
             [
                 "cc",
@@ -91,7 +93,7 @@ class Lifecycle(unittest.TestCase):
                     "schema": 1,
                     "edition": "lite",
                     "target": TARGET,
-                    "upstream": {"fixture": True},
+                    "upstream": {"fixture": True, "runtime": {"entry": "runtime/cli.ts"}},
                     "builder": {},
                     "files": files,
                 }

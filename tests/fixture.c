@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <signal.h>
 int main(int argc,char **argv) {
+ if(argc>2 && !strcmp(argv[1],"--no-env-file")){argc-=2;argv+=2;}
  if(argc>1 && !strcmp(argv[1],"child")){execlp("omp","omp","update",NULL);return 111;}
  if(argc>1 && !strcmp(argv[1],"wait")){puts("waiting");fflush(stdout);for(;;)pause();}
  if(argc>1 && !strcmp(argv[1],"exit"))return 37;

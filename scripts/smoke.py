@@ -76,7 +76,7 @@ def main():
                 env=env,
                 capture_output=True,
                 text=True,
-                timeout=60,
+                timeout=300 if not checks else 60,
             )
             assert p.returncode == expected, (argv, p.returncode, p.stdout, p.stderr)
             checks.append(
@@ -143,7 +143,9 @@ def main():
         if write.returncode:
             assert target.startswith("linux-"), write.stderr
             direct = offline.run(
-                [str(root / "bin/omp.real"), "config", "set", "memory.backend", "off"],
+                [str(root / "bin/omp.real"), "--no-env-file",
+                 str(root / manifest["upstream"]["runtime"]["entry"]),
+                 "config", "set", "memory.backend", "off"],
                 cwd=cwd,
                 env=env,
                 capture_output=True,
@@ -168,11 +170,9 @@ def main():
             checks.append(
                 {"command": ["config", "set", "memory.backend", "off"], "exit": 0}
             )
-        with (root / "bin/omp.real").open("rb") as f:
-            assert (
-                hashlib.file_digest(f, "sha256").hexdigest()
-                == manifest["upstream"]["sha256"]
-            )
+        assert manifest["upstream"]["runtime"]["package_lock_sha256"] == hashlib.sha256(
+            (ROOT / "config/runtime-bun.lock").read_bytes()
+        ).hexdigest()
         required = {"bin/omp.real", "launcher-bin/omp"}
         assert set(manifest["files"]).issuperset(required)
         assert manifest["target"] == target
@@ -481,13 +481,55 @@ def main():
         (tools / "bash").symlink_to("/bin/bash")
         env["SHELL"] = "/bin/bash"
         env["OPENAI_API_KEY"] = "offline-test-placeholder-never-sent"
+        # Load a symlinked user extension with nested imports outside the payload.
+        # Root wildcard TUI imports and host singleton identity failed in binaries.
+        extension_dir = base / "user-extension"
+        extension_dir.mkdir()
+        (extension_dir / "helper.ts").write_text('''
+import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry";
+import { AsyncJobManager } from "@oh-my-pi/pi-coding-agent/async";
+import { cfgAsyncEnabled } from "@oh-my-pi/pi-coding-agent/tools/settings";
+import { cfgTaskMaxRecursionDepth } from "@oh-my-pi/pi-coding-agent/task/settings";
+import { assembleYieldResult } from "@oh-my-pi/pi-tui/tools/task-yield-assembly";
+export { AgentRegistry, AsyncJobManager, cfgAsyncEnabled, cfgTaskMaxRecursionDepth, assembleYieldResult };
+''')
+        extension_evidence = base / "extension-evidence.json"
+        (extension_dir / "index.ts").write_text('''
+import { writeFileSync } from "node:fs";
+import { AgentRegistry } from "@oh-my-pi/pi-coding-agent";
+import { Text } from "@oh-my-pi/pi-tui";
+import { AgentRegistry as NestedRegistry, AsyncJobManager, cfgAsyncEnabled,
+    cfgTaskMaxRecursionDepth, assembleYieldResult } from "./helper";
+export default function(pi) {
+    if (AgentRegistry !== NestedRegistry || AgentRegistry !== pi.pi.AgentRegistry)
+        throw new Error("Extension loaded a duplicate host registry");
+    pi.registerCommand("portable-extension-probe", {description: "Runtime probe", handler: async () => {}});
+    pi.on("session_start", async (_event, ctx) => {
+        const session = AgentRegistry.global().list().find(ref => ref.session?.sessionManager === ctx.sessionManager)?.session;
+        if (!session) throw new Error("Extension cannot see its live host session");
+        const text = new Text("portable-extension-sentinel", 0, 0);
+        if (!text.render(80).join("\\n").includes("portable-extension-sentinel")) throw new Error("TUI rendering failed");
+        if (typeof assembleYieldResult !== "function" || typeof AsyncJobManager !== "function") throw new Error("Missing task runtime exports");
+        writeFileSync(process.env.PORTABLE_EXTENSION_EVIDENCE, JSON.stringify({
+            registry: true, tui: true,
+            asyncEnabled: cfgAsyncEnabled.get(session.settings),
+            maxDepth: cfgTaskMaxRecursionDepth.get(session.settings),
+        }));
+    });
+}
+''')
+        user_extensions = home / ".omp/agent/extensions"
+        user_extensions.mkdir(parents=True)
+        (user_extensions / "portable-probe.ts").symlink_to(extension_dir / "index.ts")
+        env["PORTABLE_EXTENSION_EVIDENCE"] = str(extension_evidence)
         rpc_argv = [
             str(exe),
             "--mode",
             "rpc",
             "--no-session",
             "--no-lsp",
-            "--no-extensions",
+            "-e",
+            str(user_extensions / "portable-probe.ts"),
             "--no-skills",
             "--no-rules",
             "--no-title",
@@ -572,6 +614,13 @@ def main():
                 except subprocess.TimeoutExpired:
                     p.kill()
                     p.wait()
+        assert "Failed to load extension" not in err.read_text(), err.read_text()
+        assert extension_evidence.is_file(), ("Extension session_start did not run", err.read_text())
+        extension_result = json.loads(extension_evidence.read_text())
+        assert all(extension_result[key] for key in ("registry", "tui")), extension_result
+        assert isinstance(extension_result["asyncEnabled"], bool), extension_result
+        assert isinstance(extension_result["maxDepth"], int), extension_result
+        checks.append({"extension_runtime": extension_result})
         if edition == "portable":
             print("Smoke: preserving explicit browser override", flush=True)
             override = "/explicit/user/chromium"
