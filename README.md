@@ -8,6 +8,41 @@ OMP source is not patched or rebuilt. Extensions use the same packages as the ho
 Lite bundles the OMP runtime. Portable also bundles Python, trafilatura, and a browser.
 Neither edition includes model weights or media helper tools.
 
+## Install Lite with Nix
+
+From this checkout:
+
+```sh
+nix run . -- --version
+nix run .
+nix profile install .
+```
+
+Or build without installing:
+
+```sh
+nix build .
+./result/bin/omp --version
+```
+
+The flake downloads the pinned Lite release (`18.13.2`, packaging `r5`) and
+unpacks it during the Nix build, without executing the downloaded launcher.
+Bun, OMP source, dependencies, and license notices stay in `/nix/store`.
+Startup runs that unpacked copy directly: no first-launch extraction or repeated
+portable-payload checksum scan. Nix verifies the downloaded release hash, and
+the build verifies the payload and every extracted file before applying fixups.
+
+Your normal configuration, credentials, sessions, extensions, profiles, and cache
+environment remain in use; nothing writes caches into the Nix store. `omp update`
+is blocked because Nix owns the installation. Upgrade the flake revision/input
+to one pinning a newer Lite release; updating only `nixpkgs` does not change OMP.
+The version, packaging revision, and four release hashes are pinned in `flake.nix`;
+`flake.lock` pins Nixpkgs separately from the single-file builder's source locks.
+
+The flake targets Apple silicon/Intel macOS and ARM64/x86-64 Linux. It packages
+Lite only: no Python, trafilatura, browser, or model weights are added. Extensions'
+own third-party dependencies still belong with those extensions.
+
 ## Build on your Mac
 
 Clone the new bundle into a new directory (it contains the original history):

@@ -5,6 +5,31 @@ tree and a private Bun runtime. Portable adds Python, trafilatura, and a native
 browser. Full and model payloads are not implemented. The older hosted results
 below describe previously published builds, not the current extension fix.
 
+## Unpacked Lite Nix package
+
+The flake pins Lite 18.13.2, packaging r5. On Apple silicon macOS, the Nix
+package built and passed its version check, upstream `--smoke-test`, archive
+regressions, and a native Sharp PNG encode/decode round-trip. Separate checks
+with Internet access blocked covered configuration writes, profiles, update
+interception, RPC shell execution, and a symlinked extension with nested SDK
+imports sharing the live host registry. The interactive setup screen rendered
+in a real PTY. No portable extraction cache was created by the Nix launcher.
+
+A same-release macOS comparison measured 10.528 seconds for the single-file cold
+launch and 0.776 seconds cached, versus 3.202 seconds for the first unpacked Nix
+launch and 0.066 seconds cached. These are individual local observations, not
+performance guarantees or thresholds.
+
+Linux ARM64 also built in local Docker and passed archive regressions, version,
+and upstream startup smoke checks. ELF fixups resolved every native dependency.
+The bundled musl Sharp packages are excluded on Linux so autoPatchelf cannot
+bind the glibc Sharp addon to the wrong libvips. Linux x64's complete release
+payload was extracted and every file verified locally. Docker stopped during
+the x64 build attempt after the workstation ran out of disk space; it remained
+unavailable after removing this investigation's temporary files. Linux ARM64's
+added image check, Linux x64 execution, and Intel macOS execution remain
+unverified. All four final flake outputs evaluated.
+
 ## Startup performance and regression review
 
 Packaging revision 4 was not acceptable: the complete package tree exposed a
