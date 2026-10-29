@@ -41,7 +41,9 @@
               url = "https://github.com/nikvdp/omp-portable/releases/download/${release}/omp-lite-${version}-${target}";
               inherit sha256;
             };
-            nativeBuildInputs = [ python pkgs.patchelf ]
+            # patchelf 0.15.2 relocates x64 libvips's .init/.plt without fixing
+            # their references. 0.18 preserves them when growing the RPATH.
+            nativeBuildInputs = [ python pkgs.patchelfUnstable ]
               ++ lib.optionals stdenv.hostPlatform.isLinux [ pkgs.autoPatchelfHook ];
             buildInputs = lib.optionals stdenv.hostPlatform.isLinux [
               stdenv.cc.cc.lib

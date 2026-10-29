@@ -20,15 +20,23 @@ launch and 0.776 seconds cached, versus 3.202 seconds for the first unpacked Nix
 launch and 0.066 seconds cached. These are individual local observations, not
 performance guarantees or thresholds.
 
-Linux ARM64 also built in local Docker and passed archive regressions, version,
-and upstream startup smoke checks. ELF fixups resolved every native dependency.
+Linux ARM64 (native) and Linux x64 (emulated on ARM64) built in local Docker
+and passed archive regressions, version, upstream startup smoke checks, and the
+native Sharp PNG round-trip. ELF fixups resolved every native dependency.
+Both also passed isolated `nix profile add` installs, configuration writes,
+update interception, decoded-pixel checks, and reading the PNG through OMP's
+actual `read` command. All four flake outputs evaluated.
 The bundled musl Sharp packages are excluded on Linux so autoPatchelf cannot
-bind the glibc Sharp addon to the wrong libvips. Linux x64's complete release
-payload was extracted and every file verified locally. Docker stopped during
-the x64 build attempt after the workstation ran out of disk space; it remained
-unavailable after removing this investigation's temporary files. Linux ARM64's
-added image check, Linux x64 execution, and Intel macOS execution remain
-unverified. All four final flake outputs evaluated.
+bind the glibc Sharp addon to the wrong libvips. Intel macOS execution remains
+unverified.
+
+The first Linux x64 install failed in the Sharp check because Nixpkgs' default
+patchelf 0.15.2 corrupted libvips when growing its RPATH: `.init` and `.plt`
+moved, but `DT_INIT` still pointed to offset `0x25c`, matching the reported crash
+address. The flake now uses `patchelfUnstable` (0.18.0 snapshot, pinned by the
+existing Nixpkgs lock), which preserves those code sections. Both corrected
+Linux builds passed the unchanged image check; neither Bun nor Sharp was
+replaced, and no check was disabled.
 
 ## Startup performance and regression review
 
