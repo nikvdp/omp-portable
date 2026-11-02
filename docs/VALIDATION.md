@@ -5,6 +5,43 @@ production dependency tree. Portable adds Python, trafilatura, and a native
 browser. Full and model payloads are not implemented. The Nix flake remains
 independently pinned to Lite 18.13.2. Older results below describe earlier builds.
 
+## Independent Lite publication (packaging r6)
+
+The previous combined workflow's push run at `dc2e959` passed all four hosted
+Lite targets, but never published: pushes triggered verification only. Its two
+failed Linux Portable jobs remained individually red despite the overall green
+run. Release publication also waited for the entire mixed matrix.
+
+The release workflow now runs only Lite on main pushes, schedules, and manual
+dispatch. Portable has its own downstream workflow, using the successful Lite
+run's exact source SHA, release ID/tag, and hashed dependency locks. Publication
+and artifact validation are separate commands: Lite publishes a complete set;
+Portable can only append validated target-specific files, never clobber assets.
+The optional handoff is recorded and uploaded after publication; handoff errors
+do not change Lite's successful result. Revision r6 leaves older drafts alone.
+
+Local verification of this split:
+
+- All three workflows passed actionlint with ShellCheck.
+- All 36 Python tests passed with Apple's compiler/linker selected. One
+  Bun-on-PATH check skipped there and passed in the targeted 11-test run.
+  The initial full-suite attempt hit the local non-Apple linker, not a test
+  assertion; selecting `/usr/bin/clang` resolved it without source changes.
+- A throwaway act probe using the Portable workflow's actual step conditions
+  injected build exit 42: publication was skipped and the job succeeded.
+  A Lite probe retained the actual publish dependency/condition: build exit 42
+  failed the run and publication did not execute.
+- The publication CLI validated the real macOS ARM64 Lite binary, manifest,
+  report, and checksum in an isolated one-target dry run with no Portable lock.
+- Regression coverage rejects bad Lite artifacts before remote writes, invalid
+  Portable artifacts, changed lock/source/tag handoffs, wrong destination
+  releases, and missing Lite assets. Portable reruns preserve identical files
+  and reject replacements. Lite uploads exclude Portable even when present.
+
+No push, workflow dispatch, or release write was performed during implementation.
+Hosted workflow_run delivery and notification behavior require deployment to
+GitHub; the local probes do not establish those hosted results.
+
 ## Lite runtime recovery and optional Portable failures
 
 The recurring October 28 release failure was reproduced in hosted logs: OMP

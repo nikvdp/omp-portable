@@ -202,10 +202,11 @@ See [docs/VALIDATION.md](docs/VALIDATION.md) for the evidence and limits, and
 
 ## Automated releases
 
-`.github/workflows/release.yml` checks the latest stable upstream release hourly at minute 49
-and can also be run from Actions using **Release OMP Lite and Portable**. Push the workflow
-to the repository's default branch and enable Actions. No personal access token
-is needed on GitHub; only the publication job receives `contents: write`.
+`.github/workflows/release.yml` (**Release OMP Lite**) publishes on pushes to
+`main`, checks for new stable upstream releases hourly at minute 49, and supports
+manual dispatch. It builds only Lite. PRs and non-main pushes run the separate
+Lite-only verification workflow. No personal access token is needed; write
+permissions are limited to the Lite publisher and the separate Portable jobs.
 
 The workflow resolves the latest stable upstream release and checks its published
 `engines.bun` range. A compatible pinned Bun is retained; otherwise preparation
@@ -217,35 +218,41 @@ One production dependency lock is generated for all build jobs.
 `config/runtime-lock.json` pins native Bun archives. Offline extension and runtime
 smoke checks remain mandatory. Optional component versions stay pinned separately.
 
-Lite is the mandatory product: every Lite build must pass its offline smoke and
-extraction tests before publication. Portable is best-effort in both release and
-push/PR verification workflows. Its jobs run with `continue-on-error`, so a
-Portable-only build failure does not fail the workflow or trigger GitHub's failed
-workflow notification. Lite and shared release failures remain visible.
-Missing or invalid Portable artifacts (including malformed reports and checksums)
-are omitted and listed in the publish job summary; they never waive Lite checks.
-Resumed drafts discard stale skipped Portable assets before publication.
-Scheduled duplicate detection requires only the Lite asset set.
+Lite is the mandatory product: all four native targets must pass Rust checks,
+strict offline smoke checks, and extraction tests before publication. The final
+job validates binaries, checksums, manifests, build reports, and runtime/package
+lock digests, uploads the executables and `.sha256` files to a draft, then
+publishes it. The workflow completes with a green check after publication;
+Portable is not part of its matrix or completion gate. Lite failures remain red.
 
-The final job validates binaries, checksums, manifests, build reports, and the
-Portable dependency-lock digest. Manifests and reports stay in workflow
-artifacts; only the executables that passed and their `.sha256` files are
-uploaded to the release. Publication uses a draft so incomplete uploads aren't
-published.
+`.github/workflows/portable.yml` (**Portable best effort**) runs independently
+after a successful Lite release workflow on `main`. It checks out that run's
+exact source SHA and downloads its `portable-release-inputs` artifact: the
+published release ID/tag plus the resolved upstream, runtime, package, and
+Portable locks. Their hashes and the source SHA must match before building.
+It never resolves the latest upstream version again. Dry runs and duplicate
+Lite releases have no publication handoff, so Portable is skipped.
+
+Each Portable target must pass the same strict build, smoke, and extraction
+checks, plus artifact validation, before its binary and checksum are appended to
+that specific published release. Portable cannot create or edit a release,
+delete assets, replace existing assets, or upload Lite assets. Reruns skip
+identical existing Portable files and reject differing ones. Manifests and build
+reports stay in workflow artifacts. Build/setup/upload failures are handled at
+the step level and listed in the job summary without failing the workflow;
+cancellations and GitHub infrastructure failures can still interrupt it.
 
 The current packaging revision produces `omp-v<upstream-version>-r<N>`; bump
 `RELEASE_REVISION` (or run `make release`, which does it for you) when a
-complete published release would otherwise be skipped. Existing Lite-only
-`omp-v<upstream-version>` releases remain unchanged and do not prevent the new
-combined release. Complete published Lite sets are skipped; interrupted drafts
-can be retried.
+complete published release would otherwise be skipped. Revision r6 starts the
+independent Lite release path; older combined releases and drafts are untouched.
+Complete published Lite sets are skipped; interrupted Lite drafts can be retried.
 
 For a GitHub dry run, leave the manual workflow's **publish** checkbox clear.
-This builds and uploads workflow artifacts without creating a release.
-Both editions have passed all four hosted runners and publication. The
-[combined 18.2.6 release](https://github.com/nikvdp/omp-portable/releases/tag/omp-v18.2.6-r2)
-contains eight executables and their SHA-256 files. See
-[validation evidence](docs/VALIDATION.md) for hosted and local checks.
+This builds and uploads Lite workflow artifacts without creating a release or
+triggering Portable builds. To retry Portable for an actual publication, rerun
+its best-effort workflow while the original Lite handoff artifact is retained.
+See [validation evidence](docs/VALIDATION.md) for hosted and local checks.
 
 Avoid changing workflow files on the default branch while a release is building.
 GitHub can reject release creation from an older workflow revision with HTTP 403,

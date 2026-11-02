@@ -1,5 +1,7 @@
-name: Release OMP Lite and Portable
+name: Release OMP Lite
 on:
+  push:
+    branches: [main]
   schedule:
     - cron: '49 * * * *'
   workflow_dispatch:
@@ -32,7 +34,7 @@ jobs:
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
-          CHECK_EXISTING: ${{ github.event_name == 'schedule' || inputs.publish }}
+          CHECK_EXISTING: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
         run: |
           if [ "$CHECK_EXISTING" = true ]; then
             python3 scripts/release.py prepare --check-existing
@@ -59,31 +61,13 @@ jobs:
         include:
           - runner: ubuntu-24.04
             target: linux-x64
-            edition: lite
-          - runner: ubuntu-24.04
-            target: linux-x64
-            edition: portable
           - runner: ubuntu-24.04-arm
             target: linux-arm64
-            edition: lite
-          - runner: ubuntu-24.04-arm
-            target: linux-arm64
-            edition: portable
           - runner: macos-15
             target: darwin-arm64
-            edition: lite
-          - runner: macos-15
-            target: darwin-arm64
-            edition: portable
           - runner: macos-15-intel
             target: darwin-x64
-            edition: lite
-          - runner: macos-15-intel
-            target: darwin-x64
-            edition: portable
     runs-on: ${{ matrix.runner }}
-    # Lite must always ship; a Portable build failure must not block the release.
-    continue-on-error: ${{ matrix.edition == 'portable' }}
     timeout-minutes: 90
     env:
       RUSTUP_TOOLCHAIN: 1.98.1
@@ -121,7 +105,7 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
       - name: Build and smoke test
-        run: ./build.sh --edition '${{ matrix.edition }}' --target '${{ matrix.target }}' --strict-host
+        run: ./build.sh --edition lite --target '${{ matrix.target }}' --strict-host
       - name: Verify extraction lifecycle
         run: |
           python3 -m venv "$RUNNER_TEMP/omp-tests"
@@ -129,12 +113,12 @@ jobs:
           "$RUNNER_TEMP/omp-tests/bin/python" -m unittest discover -s tests -v
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: build-${{ matrix.edition }}-${{ matrix.target }}
-          path: dist/omp-${{ matrix.edition }}-*-${{ matrix.target }}*
+          name: build-lite-${{ matrix.target }}
+          path: dist/omp-lite-*-${{ matrix.target }}*
           if-no-files-found: error
   publish:
     needs: [prepare, build]
-    if: needs.prepare.outputs.needed == 'true' && (github.event_name == 'schedule' || inputs.publish)
+    if: needs.prepare.outputs.needed == 'true' && (github.event_name != 'workflow_dispatch' || inputs.publish)
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -151,10 +135,31 @@ jobs:
           path: config
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: build-*
+          pattern: build-lite-*
           merge-multiple: true
           path: dist
-      - name: Validate complete matrix and publish
+      - name: Validate all Lite targets and publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/release.py publish
+      - name: Record Portable handoff
+        id: handoff
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/release.py handoff
+      - name: Save exact published release inputs for Portable
+        if: steps.handoff.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: portable-release-inputs
+          overwrite: true
+          path: |
+            config/release.json
+            config/upstream-lock.json
+            config/portable-lock.json
+            config/runtime-lock.json
+            config/runtime-package.json
+            config/runtime-bun.lock
+          if-no-files-found: error

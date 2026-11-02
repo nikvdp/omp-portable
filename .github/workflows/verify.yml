@@ -1,6 +1,7 @@
-name: Verify native Linux and macOS builds
+name: Verify OMP Lite
 on:
   push:
+    branches-ignore: [main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -13,30 +14,13 @@ jobs:
         include:
           - runner: ubuntu-24.04
             target: linux-x64
-            edition: lite
-          - runner: ubuntu-24.04
-            target: linux-x64
-            edition: portable
           - runner: ubuntu-24.04-arm
             target: linux-arm64
-            edition: lite
-          - runner: ubuntu-24.04-arm
-            target: linux-arm64
-            edition: portable
           - runner: macos-15
             target: darwin-arm64
-            edition: lite
-          - runner: macos-15
-            target: darwin-arm64
-            edition: portable
           - runner: macos-15-intel
             target: darwin-x64
-            edition: lite
-          - runner: macos-15-intel
-            target: darwin-x64
-            edition: portable
     runs-on: ${{ matrix.runner }}
-    continue-on-error: ${{ matrix.edition == 'portable' }}
     timeout-minutes: 90
     env:
       RUSTUP_TOOLCHAIN: 1.98.1
@@ -61,7 +45,7 @@ jobs:
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
       - name: Build native artifact and run offline smoke tests
-        run: ./build.sh --edition '${{ matrix.edition }}' --target '${{ matrix.target }}' --strict-host
+        run: ./build.sh --edition lite --target '${{ matrix.target }}' --strict-host
       - name: Exercise native extraction lifecycle
         run: |
           python3 -m venv "$RUNNER_TEMP/omp-tests"

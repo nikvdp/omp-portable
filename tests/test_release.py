@@ -32,6 +32,7 @@ class Publication(unittest.TestCase):
         }.items():
             (config / name).write_text(json.dumps(value))
         self.dependencies = config / "runtime-bun.lock"
+        (config / "runtime-package.json").write_text('{}')
         self.dependencies.write_text("locked dependencies")
         self.runtime_path = config / "runtime-lock.json"
         for name, value in {
@@ -89,24 +90,17 @@ class Publication(unittest.TestCase):
             report["smoke"] = "failed"
             path.write_text(json.dumps(report))
 
-    def publish_output(self):
-        output = io.StringIO()
-        with contextlib.redirect_stdout(output):
-            release.publish(True)
-        return output.getvalue()
-
-    def test_valid_artifacts_are_included(self):
-        self.assertIn("Verified 1 Lite and 1 Portable builds, 4 public release files", self.publish_output())
-
-    def test_portable_failure_does_not_block_lite(self):
-        for case in ("missing binary", "missing report", "bad manifest JSON", "bad report shape",
-                     "bad checksum", "failed smoke"):
-            with self.subTest(case=case):
-                self.artifact("portable")
-                self.corrupt(self.portable, case)
-                output = self.publish_output()
-                self.assertIn("Verified 1 Lite and 0 Portable builds, 2 public release files", output)
-                self.assertIn("Skipping best-effort", output)
+    def test_lite_publishes_without_portable_inputs(self):
+        self.lock["repo"] = "local/upstream"
+        (self.root / "config/upstream-lock.json").write_text(json.dumps(self.lock))
+        self.corrupt(self.portable, "bad checksum")
+        (self.root / "config/portable-lock.json").unlink()
+        with patch.object(release, "gh", return_value="[[]]") as gh, \
+             patch.dict(os.environ, {"GITHUB_REPOSITORY": "local/test", "GITHUB_SHA": "abc123"}), \
+             contextlib.redirect_stdout(io.StringIO()):
+            release.publish(False)
+        upload = next(call.args for call in gh.call_args_list if call.args[:2] == ("release", "upload"))
+        self.assertEqual(upload[6:], (str(self.lite), str(self.lite) + ".sha256"))
 
     def test_same_lite_failures_block_publication(self):
         for case in ("missing binary", "missing report", "bad manifest JSON", "bad report shape",
@@ -114,25 +108,119 @@ class Publication(unittest.TestCase):
             with self.subTest(case=case):
                 self.artifact("lite")
                 self.corrupt(self.lite, case)
-                with self.assertRaises((OSError, ValueError, TypeError, RuntimeError)):
-                    self.publish_output()
+                with patch.object(release, "gh") as gh:
+                    with self.assertRaises((OSError, ValueError, TypeError, RuntimeError)):
+                        release.publish(False)
+                    gh.assert_not_called()
 
-    def test_missing_portable_lock_does_not_block_lite(self):
-        (self.root / "config/portable-lock.json").unlink()
-        self.assertIn("Verified 1 Lite and 0 Portable builds", self.publish_output())
+    def handoff(self):
+        value = {
+            "tag": release.downstream_tag("v1.2.3"), "release_id": 10,
+            "source_sha": "abc123",
+            "locks": {name: hashlib.sha256((self.root / "config" / name).read_bytes()).hexdigest()
+                      for name in release.HANDOFF_LOCKS},
+        }
+        (self.root / "config/release.json").write_text(json.dumps(value))
+        return value
 
-    def test_skipped_portable_is_removed_from_resumed_draft(self):
-        self.corrupt(self.portable, "bad checksum")
-        draft = {"tag_name": release.downstream_tag("v1.2.3"), "id": 10, "draft": True}
-        assets = [{"id": 20, "name": self.portable.name},
-                  {"id": 21, "name": self.portable.name + ".sha256"}]
-        with patch.object(release, "gh", return_value=json.dumps([[draft]])) as gh, \
+    def destination(self):
+        return {"id": 10, "tag_name": release.downstream_tag("v1.2.3"),
+                "draft": False, "target_commitish": "abc123"}
+
+    def lite_assets(self):
+        return [{"name": self.lite.name}, {"name": self.lite.name + ".sha256"}]
+
+    def test_portable_appends_without_mutating_lite(self):
+        self.handoff()
+        with patch.object(release, "gh", return_value=json.dumps(self.destination())) as gh, \
+             patch.object(release, "release_assets", return_value=self.lite_assets()), \
+             patch.dict(os.environ, {"GITHUB_REPOSITORY": "local/test", "RELEASE_SOURCE_SHA": "abc123"}):
+            release.publish_portable("linux-x64", False)
+        writes = [call.args for call in gh.call_args_list if call.args[:1] != ("api",)]
+        self.assertEqual(writes, [("release", "upload", release.downstream_tag("v1.2.3"),
+                                 "--repo", "local/test", str(self.portable), str(self.portable) + ".sha256")])
+
+    def test_portable_rejects_invalid_artifacts_before_remote_writes(self):
+        self.handoff()
+        for case in ("missing binary", "missing report", "bad manifest JSON", "bad report shape",
+                     "bad checksum", "failed smoke"):
+            with self.subTest(case=case):
+                self.artifact("portable")
+                self.corrupt(self.portable, case)
+                with patch.dict(os.environ, {"RELEASE_SOURCE_SHA": "abc123"}), \
+                     patch.object(release, "gh") as gh:
+                    with self.assertRaises((OSError, ValueError, TypeError, RuntimeError)):
+                        release.publish_portable("linux-x64", False)
+                    gh.assert_not_called()
+
+    def test_portable_rejects_changed_locks_source_and_tag(self):
+        for case in ("source", "tag", *release.HANDOFF_LOCKS):
+            with self.subTest(case=case):
+                handoff = self.handoff()
+                if case == "source":
+                    handoff["source_sha"] = "different"
+                elif case == "tag":
+                    handoff["tag"] = "omp-v9.9.9-r6"
+                else:
+                    handoff["locks"][case] = "wrong hash"
+                (self.root / "config/release.json").write_text(json.dumps(handoff))
+                with patch.dict(os.environ, {"RELEASE_SOURCE_SHA": "abc123"}), \
+                     patch.object(release, "gh") as gh:
+                    with self.assertRaises(RuntimeError):
+                        release.publish_portable("linux-x64", False)
+                    gh.assert_not_called()
+
+    def test_portable_rejects_wrong_destination_or_missing_lite(self):
+        self.handoff()
+        for changes, assets in (({"draft": True}, self.lite_assets()),
+                                ({"tag_name": "wrong"}, self.lite_assets()),
+                                ({"target_commitish": "wrong"}, self.lite_assets()), ({}, [])):
+            with self.subTest(changes=changes, assets=assets), \
+                 patch.object(release, "gh", return_value=json.dumps(self.destination() | changes)) as gh, \
+                 patch.object(release, "release_assets", return_value=assets), \
+                 patch.dict(os.environ, {"GITHUB_REPOSITORY": "local/test", "RELEASE_SOURCE_SHA": "abc123"}):
+                with self.assertRaises(RuntimeError):
+                    release.publish_portable("linux-x64", False)
+                self.assertTrue(all(call.args[0] == "api" for call in gh.call_args_list))
+
+    def test_portable_rerun_preserves_existing_assets(self):
+        self.handoff()
+        sidecar = self.portable.with_name(self.portable.name + ".sha256")
+        assets = self.lite_assets() + [
+            {"name": path.name, "digest": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()}
+            for path in (self.portable, sidecar)
+        ]
+        with patch.object(release, "gh", return_value=json.dumps(self.destination())) as gh, \
              patch.object(release, "release_assets", return_value=assets), \
-             patch.dict(os.environ, {"GITHUB_REPOSITORY": "local/test"}), \
+             patch.dict(os.environ, {"GITHUB_REPOSITORY": "local/test", "RELEASE_SOURCE_SHA": "abc123"}):
+            release.publish_portable("linux-x64", False)
+            self.assertTrue(all(call.args[0] == "api" for call in gh.call_args_list))
+            assets[-1]["digest"] = "sha256:changed"
+            with self.assertRaisesRegex(RuntimeError, "Refusing to replace"):
+                release.publish_portable("linux-x64", False)
+            self.assertTrue(all(call.args[0] == "api" for call in gh.call_args_list))
+
+    def test_lite_publication_handoff_uses_resolved_inputs(self):
+        self.lock["repo"] = "local/upstream"
+        (self.root / "config/upstream-lock.json").write_text(json.dumps(self.lock))
+        def api(*args):
+            if args[:3] == ("api", "--paginate", "--slurp"):
+                return "[[]]"
+            if args == ("api", f"repos/local/test/releases/tags/{release.downstream_tag('v1.2.3')}"):
+                return json.dumps(self.destination())
+            return ""
+        with patch.object(release, "gh", side_effect=api) as gh, \
+             patch.dict(os.environ, {"GITHUB_REPOSITORY": "local/test", "GITHUB_SHA": "abc123"}), \
              contextlib.redirect_stdout(io.StringIO()):
             release.publish(False)
-        deleted = [call.args[-1] for call in gh.call_args_list if "DELETE" in call.args]
-        self.assertEqual(deleted, ["repos/local/test/releases/assets/20", "repos/local/test/releases/assets/21"])
+            release.write_handoff()
+        handoff = json.loads((self.root / "config/release.json").read_text())
+        self.assertEqual(handoff["source_sha"], "abc123")
+        self.assertEqual(handoff["release_id"], 10)
+        (self.root / "config/upstream-lock.json").write_text('{"tag":"v9.9.9"}')
+        with patch.dict(os.environ, {"RELEASE_SOURCE_SHA": "abc123"}):
+            with self.assertRaisesRegex(RuntimeError, "lock changed"):
+                release.check_handoff()
         upload = next(call.args for call in gh.call_args_list if call.args[:2] == ("release", "upload"))
         self.assertIn(str(self.lite), upload)
         self.assertNotIn(str(self.portable), upload)

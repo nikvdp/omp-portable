@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Discover upstream releases and publish only complete verified native builds."""
+"""Publish mandatory Lite releases and independently append verified Portable assets."""
 
 import argparse
 import hashlib
@@ -13,7 +13,7 @@ from platforms import detect_target
 
 ROOT = Path(__file__).resolve().parents[1]
 EDITIONS = ("lite", "portable")
-RELEASE_REVISION = 5
+RELEASE_REVISION = 6
 
 
 def downstream_tag(upstream_tag):
@@ -148,57 +148,84 @@ def validate_artifact(binary, edition, target, lock, runtime_lock, runtime_diges
     return [binary, checksum]
 
 
-def publish(dry_run):
+def publication_inputs():
     lock = json.loads((ROOT / "config/upstream-lock.json").read_text())
     targets = json.loads((ROOT / "config/targets.json").read_text())
     if set(lock["assets"]) != set(targets):
         raise RuntimeError("Release lock does not cover every supported native target")
-    portable_lock = ROOT / "config/portable-lock.json"
-    portable_lock_sha256 = (
-        hashlib.sha256(portable_lock.read_bytes()).hexdigest() if portable_lock.is_file() else None
+    return (
+        lock, json.loads(RUNTIME_LOCK.read_text()),
+        hashlib.sha256(RUNTIME_LOCK.read_bytes()).hexdigest(),
+        hashlib.sha256(DEPENDENCIES.read_bytes()).hexdigest(),
     )
-    runtime_lock = json.loads(RUNTIME_LOCK.read_text())
-    runtime_digest = hashlib.sha256(RUNTIME_LOCK.read_bytes()).hexdigest()
-    package_lock_sha256 = hashlib.sha256(DEPENDENCIES.read_bytes()).hexdigest()
+
+
+HANDOFF_LOCKS = (
+    "upstream-lock.json", "portable-lock.json", "runtime-lock.json",
+    "runtime-package.json", "runtime-bun.lock",
+)
+
+
+def check_handoff():
+    handoff = json.loads((ROOT / "config/release.json").read_text())
+    if handoff["source_sha"] != os.environ["RELEASE_SOURCE_SHA"]:
+        raise RuntimeError("Portable source does not match the successful Lite run")
+    if set(handoff["locks"]) != set(HANDOFF_LOCKS):
+        raise RuntimeError("Incomplete Lite release lock handoff")
+    for name, digest in handoff["locks"].items():
+        if hashlib.sha256((ROOT / "config" / name).read_bytes()).hexdigest() != digest:
+            raise RuntimeError(f"Lite release lock changed: {name}")
+    lock = json.loads((ROOT / "config/upstream-lock.json").read_text())
+    if handoff["tag"] != downstream_tag(lock["tag"]):
+        raise RuntimeError("Lite release tag does not match its upstream lock")
+    return handoff
+
+
+def publish_portable(target, dry_run):
+    handoff = check_handoff()
+    lock, runtime_lock, runtime_digest, package_digest = publication_inputs()
+    if target not in lock["assets"]:
+        raise RuntimeError(f"Unsupported Portable target: {target}")
+    portable_digest = hashlib.sha256((ROOT / "config/portable-lock.json").read_bytes()).hexdigest()
+    binary = ROOT / "dist" / f"omp-portable-{lock['tag'].removeprefix('v')}-{target}"
+    paths = validate_artifact(
+        binary, "portable", target, lock, runtime_lock, runtime_digest,
+        portable_digest, package_digest,
+    )
+    if dry_run:
+        print(f"Verified Portable {target} for {handoff['tag']}", flush=True)
+        return
+    repo = os.environ["GITHUB_REPOSITORY"]
+    published = json.loads(gh("api", f"repos/{repo}/releases/{handoff['release_id']}"))
+    if (published["draft"] or published["tag_name"] != handoff["tag"]
+            or published["target_commitish"] != handoff["source_sha"]):
+        raise RuntimeError("Portable destination is not the original published Lite release")
+    expected_lite = release_asset_names(lock["tag"], lock["assets"], editions=("lite",))
+    assets = release_assets(repo, handoff["release_id"])
+    if not expected_lite.issubset({asset["name"] for asset in assets}):
+        raise RuntimeError("Destination release is missing mandatory Lite assets")
+    existing = {asset["name"]: asset for asset in assets}
+    for path in paths:
+        if path.name in existing:
+            digest = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+            if existing[path.name].get("digest") != digest:
+                raise RuntimeError(f"Refusing to replace published asset: {path.name}")
+    missing = [str(path) for path in paths if path.name not in existing]
+    if missing:
+        gh("release", "upload", handoff["tag"], "--repo", repo, *missing)
+
+
+def publish(dry_run):
+    lock, runtime_lock, runtime_digest, package_digest = publication_inputs()
     paths = []
-    skipped = []
     version = lock["tag"].removeprefix("v")
-    for edition in EDITIONS:
-        for target in lock["assets"]:
-            binary = ROOT / "dist" / f"omp-{edition}-{version}-{target}"
-            try:
-                if edition == "portable" and portable_lock_sha256 is None:
-                    raise RuntimeError("Portable dependency lock is missing")
-                verified = validate_artifact(
-                    binary, edition, target, lock, runtime_lock, runtime_digest,
-                    portable_lock_sha256, package_lock_sha256,
-                )
-            except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as error:
-                if edition == "lite":
-                    raise
-                skipped.append(binary.name)
-                print(f"Skipping best-effort {binary.name}: {error}", flush=True)
-                continue
-            paths.extend(verified)
-    if skipped:
-        print(
-            f"Best-effort Portable skipped {len(skipped)} artifact(s): "
-            + ", ".join(skipped),
-            flush=True,
-        )
-        if os.environ.get("GITHUB_STEP_SUMMARY"):
-            with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-                summary.write("### Best-effort Portable artifacts skipped\n\n")
-                summary.writelines(f"- {name}\n" for name in skipped)
-    lite_count = sum(1 for p in paths if p.name.startswith("omp-lite-")) // 2
-    if lite_count < len(lock["assets"]):
-        raise RuntimeError("Lite artifacts missing; refusing to publish")
-    portable_count = len(paths) // 2 - lite_count
-    print(
-        f"Verified {lite_count} Lite and {portable_count} Portable "
-        f"builds, {len(paths)} public release files",
-        flush=True,
-    )
+    for target in lock["assets"]:
+        binary = ROOT / "dist" / f"omp-lite-{version}-{target}"
+        paths.extend(validate_artifact(
+            binary, "lite", target, lock, runtime_lock, runtime_digest,
+            None, package_digest,
+        ))
+    print(f"Verified {len(paths) // 2} Lite builds, {len(paths)} public release files", flush=True)
     if dry_run:
         return
     tag = downstream_tag(lock["tag"])
@@ -220,21 +247,21 @@ def publish(dry_run):
             "--target",
             os.environ["GITHUB_SHA"],
             "--title",
-            f"OMP Lite + Portable {lock['tag']} (packaging r{RELEASE_REVISION})",
+            f"OMP Lite {lock['tag']} (packaging r{RELEASE_REVISION})",
             "--notes",
-            f"Native Lite and Portable builds of https://github.com/{lock['repo']}/releases/tag/{lock['tag']}. "
-            + (
-                "All eight edition/target builds passed offline smoke and extraction tests. "
-                if not skipped
-                else f"Lite passed offline smoke and extraction tests; Portable best-effort skipped {len(skipped)} build(s). "
-            )
-            + "macOS binaries are ad-hoc signed, not notarized. Full is not included. "
+            f"Native Lite builds of https://github.com/{lock['repo']}/releases/tag/{lock['tag']}. "
+            "All four Lite targets passed offline smoke and extraction tests. "
+            "Portable assets may be appended by a separate best-effort workflow; "
+            "only targets passing its checks are uploaded. "
+            "macOS binaries are ad-hoc signed, not notarized. Full is not included. "
             "Restore executable permissions with chmod +x after downloading.",
         )
     else:
-        public_names = release_asset_names(lock["tag"], lock["assets"])
+        if existing["target_commitish"] != os.environ["GITHUB_SHA"]:
+            raise RuntimeError("Draft source differs from this build; increment RELEASE_REVISION")
+        public_names = release_asset_names(lock["tag"], lock["assets"], editions=("lite",))
         metadata_names = release_asset_names(
-            lock["tag"], lock["assets"], (".build.json", ".manifest.json")
+            lock["tag"], lock["assets"], (".build.json", ".manifest.json"), editions=("lite",)
         )
         draft_assets = release_assets(repo, existing["id"])
         unexpected = [
@@ -260,13 +287,38 @@ def publish(dry_run):
     gh("release", "edit", tag, "--repo", repo, "--draft=false")
 
 
+def write_handoff():
+    lock = json.loads((ROOT / "config/upstream-lock.json").read_text())
+    tag = downstream_tag(lock["tag"])
+    repo = os.environ["GITHUB_REPOSITORY"]
+    published = json.loads(gh("api", f"repos/{repo}/releases/tags/{tag}"))
+    if (published["draft"] or published["tag_name"] != tag
+            or published["target_commitish"] != os.environ["GITHUB_SHA"]):
+        raise RuntimeError("Cannot hand off a release from a different source or an unpublished draft")
+    handoff = {
+        "tag": tag, "release_id": published["id"], "source_sha": os.environ["GITHUB_SHA"],
+        "locks": {name: hashlib.sha256((ROOT / "config" / name).read_bytes()).hexdigest()
+                  for name in HANDOFF_LOCKS},
+    }
+    (ROOT / "config/release.json").write_text(json.dumps(handoff, indent=2) + "\n")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["prepare", "publish"])
+    parser.add_argument("command", choices=["prepare", "publish", "handoff", "check-handoff", "publish-portable"])
     parser.add_argument("--check-existing", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--target")
     args = parser.parse_args()
     if args.command == "prepare":
         prepare(args.check_existing)
+    elif args.command == "handoff":
+        write_handoff()
+    elif args.command == "check-handoff":
+        check_handoff()
+    elif args.command == "publish-portable":
+        if not args.target:
+            parser.error("publish-portable requires --target")
+        publish_portable(args.target, args.dry_run)
     else:
         publish(args.dry_run)

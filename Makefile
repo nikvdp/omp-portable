@@ -25,11 +25,11 @@ release:
 	rm -f "$$msg"; \
 	echo; echo "Release prep done (nothing was pushed)."; echo; \
 	echo "Next:"; echo "  1. git push origin main"; \
-	echo "     The push-triggered verify workflow runs all 8 builds as a pre-flight."; echo; \
-	echo "  2. Trigger the release: GitHub Actions -> 'Release OMP Lite and Portable'"; \
-	echo "     -> Run workflow with the publish checkbox checked (or wait for the"; \
-	echo "     hourly cron at minute :49, which publishes automatically)."; \
-	echo "     CI will build and publish $$tag."
+	echo "     The push builds all four Lite targets and publishes automatically."; \
+	echo "     Portable runs afterward in a separate best-effort workflow."; echo; \
+	echo "Manual alternative: GitHub Actions -> 'Release OMP Lite'"; \
+	echo "  -> Run workflow with publish checked (unchecked builds artifacts only)."; \
+	echo "The hourly cron also checks for new upstream releases."
 
 test:
 	$(PYTHON) -m unittest discover -s tests -v
