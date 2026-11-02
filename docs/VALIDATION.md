@@ -1,9 +1,51 @@
 # Validation
 
-The current builder packages OMP 18.10.3 with its complete production dependency
-tree and a private Bun runtime. Portable adds Python, trafilatura, and a native
-browser. Full and model payloads are not implemented. The older hosted results
-below describe previously published builds, not the current extension fix.
+The current single-file builder pins OMP 18.15.0 and Bun 1.4.4 with the complete
+production dependency tree. Portable adds Python, trafilatura, and a native
+browser. Full and model payloads are not implemented. The Nix flake remains
+independently pinned to Lite 18.13.2. Older results below describe earlier builds.
+
+## Lite runtime recovery and optional Portable failures
+
+The recurring October 28 release failure was reproduced in hosted logs: OMP
+18.13.3 and later require Bun >=1.4.4, while the builder bundled 1.3.14. Release
+preparation now reads the published engine range, retains a compatible runtime,
+or locks a compatible stable Bun for all four targets after npm integrity checks.
+Bun 1.4.4 lock generation must omit `--production`; frozen installation still
+uses it. Actual local preparation generated the shared OMP 18.15.0 lock.
+
+On native macOS ARM64, the finished Lite executable passed all 24 strict offline
+checks, including config writes, profiles, update interception, the private shim,
+RPC shell execution, and a symlinked extension sharing the host registry. All 32
+Python tests and eight Rust tests passed, along with Clippy and Rust formatting.
+The actual Linux ARM64 verification workflow passed under act 0.2.70 using a
+local Ubuntu 24.04 runner: Rust checks, build, all 24 strict offline checks, and
+the Python suite (one Bun-on-PATH semver test skipped; it passed on macOS).
+The workflow now installs the archive tests' zstandard dependency in a venv.
+The macOS x64 Lite build also passed all 24 strict offline checks under Rosetta
+using an x64 Python and x64 Bun. This is translated execution, not native Intel
+hosted-runner verification. A repeated live release preparation retained Bun
+1.4.4 and reproduced the identical dependency-lock SHA-256.
+Linux x64 compiled and packaged successfully in an emulated Ubuntu 24.04
+container, but the mandatory seccomp guard could not be installed under the
+local x64 emulator. The strict smoke run therefore failed before executing OMP;
+its artifact remains an unverified candidate, not a shippable `dist` binary.
+Separate Docker `--network none` checks passed version, config reads/writes,
+update interception, and RPC state/shell execution. The placeholder API key was
+never sent. No network guard or smoke requirement was relaxed.
+
+Publication regressions cover missing binaries/reports, malformed metadata,
+failed smoke reports, bad checksums, missing Portable locks, and resumed drafts.
+Portable defects are skipped; the equivalent Lite defects reject publication.
+Runtime regressions also reject corrupt downloaded archives without changing the
+pin. The real macOS ARM64 artifact passed the publication validator. All eight
+release/runtime regressions and both workflows' actionlint checks passed.
+
+An injected Portable-only failure probe exposed act 0.2.70's lack of effective
+job-level `continue-on-error` handling: it returns failure even for an optional
+job. GitHub's documented semantics and an existing successful hosted release
+with failed Portable jobs establish the intended workflow behavior; notification
+delivery itself cannot be verified locally. No remote writes were performed.
 
 ## Unpacked Lite Nix package
 

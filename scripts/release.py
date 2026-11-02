@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
-from runtime import runtime_bun, refresh, LOCK as RUNTIME_LOCK, DEPENDENCIES
+from runtime import runtime_bun, refresh_bun, refresh, LOCK as RUNTIME_LOCK, DEPENDENCIES
 from platforms import detect_target
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,6 +99,7 @@ def prepare(check_existing):
         cache = ROOT / "build/upstream"
         cache.mkdir(parents=True, exist_ok=True)
         bun, _ = runtime_bun(detect_target(), cache, acquire)
+        bun = refresh_bun(tag, bun, cache, acquire)
         refresh(tag, bun, os.environ.copy())
         (ROOT / "config/upstream-lock.json").write_text(
             json.dumps(lock, indent=2) + "\n"
@@ -110,15 +111,54 @@ def prepare(check_existing):
             output.write(outputs)
 
 
+def validate_artifact(binary, edition, target, lock, runtime_lock, runtime_digest, portable_digest, package_digest):
+    report = json.loads(binary.with_name(binary.name + ".build.json").read_text())
+    manifest = json.loads(binary.with_name(binary.name + ".manifest.json").read_text())
+    with binary.open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    portable = manifest.get("portable")
+    if (
+        report["smoke"] != "passed"
+        or report["target"] != target
+        or report["edition"] != edition
+        or report["sha256"] != digest
+        or report["size_bytes"] != binary.stat().st_size
+        or (edition == "portable" and report.get("portable_lock_sha256") != portable_digest)
+        or manifest["target"] != target
+        or manifest["edition"] != edition
+        or manifest["schema"] != 1
+        or (edition == "portable" and (
+            not isinstance(portable, dict)
+            or set(portable) != {"python", "browser", "components"}
+            or not portable["components"]
+        ))
+        or (edition == "lite" and "portable" in manifest)
+        or manifest["upstream"]["tag"] != lock["tag"]
+        or report.get("runtime_lock_sha256") != runtime_digest
+        or report.get("package_lock_sha256") != package_digest
+        or manifest["upstream"]["runtime"]["package_lock_sha256"] != package_digest
+        or manifest["upstream"]["runtime"]["bun"] != {
+            "version": runtime_lock["version"], **runtime_lock["assets"][target],
+        }
+    ):
+        raise RuntimeError(f"Invalid release artifact: {binary.name}")
+    checksum = binary.with_name(binary.name + ".sha256")
+    if checksum.read_text() != f"{digest}  {binary.name}\n":
+        raise RuntimeError(f"Invalid checksum sidecar: {binary.name}")
+    return [binary, checksum]
+
+
 def publish(dry_run):
     lock = json.loads((ROOT / "config/upstream-lock.json").read_text())
     targets = json.loads((ROOT / "config/targets.json").read_text())
     if set(lock["assets"]) != set(targets):
         raise RuntimeError("Release lock does not cover every supported native target")
-    portable_lock_sha256 = hashlib.sha256(
-        (ROOT / "config/portable-lock.json").read_bytes()
-    ).hexdigest()
-    runtime_lock_sha256 = hashlib.sha256(RUNTIME_LOCK.read_bytes()).hexdigest()
+    portable_lock = ROOT / "config/portable-lock.json"
+    portable_lock_sha256 = (
+        hashlib.sha256(portable_lock.read_bytes()).hexdigest() if portable_lock.is_file() else None
+    )
+    runtime_lock = json.loads(RUNTIME_LOCK.read_text())
+    runtime_digest = hashlib.sha256(RUNTIME_LOCK.read_bytes()).hexdigest()
     package_lock_sha256 = hashlib.sha256(DEPENDENCIES.read_bytes()).hexdigest()
     paths = []
     skipped = []
@@ -126,64 +166,30 @@ def publish(dry_run):
     for edition in EDITIONS:
         for target in lock["assets"]:
             binary = ROOT / "dist" / f"omp-{edition}-{version}-{target}"
-            report_path = binary.with_name(binary.name + ".build.json")
-            if edition == "portable" and not binary.is_file():
-                # Portable is best-effort: never block a Lite release on it.
+            try:
+                if edition == "portable" and portable_lock_sha256 is None:
+                    raise RuntimeError("Portable dependency lock is missing")
+                verified = validate_artifact(
+                    binary, edition, target, lock, runtime_lock, runtime_digest,
+                    portable_lock_sha256, package_lock_sha256,
+                )
+            except (OSError, ValueError, KeyError, TypeError, AttributeError, RuntimeError) as error:
+                if edition == "lite":
+                    raise
                 skipped.append(binary.name)
+                print(f"Skipping best-effort {binary.name}: {error}", flush=True)
                 continue
-            report = json.loads(report_path.read_text())
-            manifest = json.loads(
-                binary.with_name(binary.name + ".manifest.json").read_text()
-            )
-            portable = manifest.get("portable")
-            with binary.open("rb") as stream:
-                digest = hashlib.file_digest(stream, "sha256").hexdigest()
-            if (
-                report["smoke"] != "passed"
-                or report["target"] != target
-                or report["edition"] != edition
-                or report["sha256"] != digest
-                or report["size_bytes"] != binary.stat().st_size
-                or (
-                    edition == "portable"
-                    and report.get("portable_lock_sha256") != portable_lock_sha256
-                )
-                or manifest["target"] != target
-                or manifest["edition"] != edition
-                or manifest["schema"] != 1
-                or (
-                    edition == "portable"
-                    and (
-                        not isinstance(portable, dict)
-                        or set(portable) != {"python", "browser", "components"}
-                        or not portable["components"]
-                    )
-                )
-                or (edition == "lite" and "portable" in manifest)
-                or manifest["upstream"]["tag"] != lock["tag"]
-                or report.get("runtime_lock_sha256") != runtime_lock_sha256
-                or report.get("package_lock_sha256") != package_lock_sha256
-                or manifest["upstream"]["runtime"]["package_lock_sha256"] != package_lock_sha256
-                or manifest["upstream"]["runtime"]["bun"] != {
-                    "version": json.loads(RUNTIME_LOCK.read_text())["version"],
-                    **json.loads(RUNTIME_LOCK.read_text())["assets"][target],
-                }
-            ):
-                if edition == "portable":
-                    # Best-effort: record and continue; Lite must still ship.
-                    skipped.append(binary.name)
-                    continue
-                raise RuntimeError(f"Invalid release artifact: {binary.name}")
-            checksum = binary.with_name(binary.name + ".sha256")
-            if checksum.read_text() != f"{digest}  {binary.name}\n":
-                raise RuntimeError(f"Invalid checksum sidecar: {binary.name}")
-            paths.extend([binary, checksum])
+            paths.extend(verified)
     if skipped:
         print(
             f"Best-effort Portable skipped {len(skipped)} artifact(s): "
             + ", ".join(skipped),
             flush=True,
         )
+        if os.environ.get("GITHUB_STEP_SUMMARY"):
+            with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+                summary.write("### Best-effort Portable artifacts skipped\n\n")
+                summary.writelines(f"- {name}\n" for name in skipped)
     lite_count = sum(1 for p in paths if p.name.startswith("omp-lite-")) // 2
     if lite_count < len(lock["assets"]):
         raise RuntimeError("Lite artifacts missing; refusing to publish")
@@ -241,8 +247,9 @@ def publish(dry_run):
                 f"Refusing to publish draft {tag} with unexpected assets: "
                 f"{sorted(unexpected)}"
             )
+        verified_names = {p.name for p in paths}
         for asset in draft_assets:
-            if asset["name"] in metadata_names:
+            if asset["name"] in metadata_names or asset["name"] not in verified_names:
                 gh(
                     "api",
                     "--method",

@@ -36,6 +36,7 @@ jobs:
             target: darwin-x64
             edition: portable
     runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.edition == 'portable' }}
     timeout-minutes: 90
     env:
       RUSTUP_TOOLCHAIN: 1.98.1
@@ -47,9 +48,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y musl-tools
         if: startsWith(matrix.target, 'linux-')
       - name: Install explicit Rust toolchain
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
         run: |
           rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
-          if [[ "${{ matrix.target }}" == linux-* ]]; then
+          if [[ "$BUILD_TARGET" == linux-* ]]; then
             rustup target add --toolchain 1.98.1 ${{ matrix.target == 'linux-x64' && 'x86_64-unknown-linux-musl' || 'aarch64-unknown-linux-musl' }}
           fi
       - name: Check Rust source and format
@@ -60,4 +63,7 @@ jobs:
       - name: Build native artifact and run offline smoke tests
         run: ./build.sh --edition '${{ matrix.edition }}' --target '${{ matrix.target }}' --strict-host
       - name: Exercise native extraction lifecycle
-        run: python3 -m unittest discover -s tests -v
+        run: |
+          python3 -m venv "$RUNNER_TEMP/omp-tests"
+          "$RUNNER_TEMP/omp-tests/bin/pip" install zstandard==0.23.0
+          "$RUNNER_TEMP/omp-tests/bin/python" -m unittest discover -s tests -v

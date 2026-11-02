@@ -89,8 +89,8 @@ checks its signature, and runs the finished artifact from a temporary directory
 with fresh state and outbound network access blocked. No developer signing
 account is needed for ad-hoc signing. This is not Apple notarization.
 
-Output is `dist/omp-lite-18.10.3-darwin-arm64` or
-`dist/omp-lite-18.10.3-darwin-x64`. `dist/omp-lite` points to the latest successful
+Output is `dist/omp-lite-18.15.0-darwin-arm64` or
+`dist/omp-lite-18.15.0-darwin-x64`. `dist/omp-lite` points to the latest successful
 native build. Copy the **versioned file** to another Mac of the same architecture.
 The destination needs no Rust, Python, Node, Bun, or installed OMP to launch it.
 If sharing through a service that strips executable permissions, restore them
@@ -157,7 +157,9 @@ release to update. Nothing replaces global OMP.
 ```sh
 ./build.sh --plan                    # no download or build
 ./build.sh --strict-host             # require upstream config writes too
-python3 -m unittest discover -s tests -v   # after a native build
+python3 -m venv /tmp/omp-tests
+/tmp/omp-tests/bin/pip install zstandard==0.23.0
+/tmp/omp-tests/bin/python -m unittest discover -s tests -v   # after a native build
 ```
 
 Each build writes `build/<target>/<edition>/build-plan.json`,
@@ -205,18 +207,25 @@ and can also be run from Actions using **Release OMP Lite and Portable**. Push t
 to the repository's default branch and enable Actions. No personal access token
 is needed on GitHub; only the publication job receives `contents: write`.
 
-The workflow resolves the latest stable upstream release and generates one
-production dependency lock for all build jobs. `config/runtime-bun.lock` pins
-package versions and integrity hashes; `config/runtime-lock.json` pins native Bun
-archives. Compatibility is enforced by offline extension and runtime smoke checks.
-Optional component versions stay pinned separately.
+The workflow resolves the latest stable upstream release and checks its published
+`engines.bun` range. A compatible pinned Bun is retained; otherwise preparation
+selects the latest stable Bun satisfying that range, verifies all four archives
+against npm SHA-512 integrity, and records SHA-256, sizes, and license metadata.
+An incompatible stable runtime fails preparation before the build matrix starts.
+One production dependency lock is generated for all build jobs.
+`config/runtime-bun.lock` pins package versions and integrity hashes;
+`config/runtime-lock.json` pins native Bun archives. Offline extension and runtime
+smoke checks remain mandatory. Optional component versions stay pinned separately.
 
 Lite is the mandatory product: every Lite build must pass its offline smoke and
-extraction tests before publication. Portable is best-effort. Its build jobs
-run with `continue-on-error`, so a Portable failure or missing artifact never
-blocks a Lite release; the publish job validates whatever Portable artifacts
-exist and records the ones it skipped. Scheduled duplicate detection requires
-only the Lite asset set.
+extraction tests before publication. Portable is best-effort in both release and
+push/PR verification workflows. Its jobs run with `continue-on-error`, so a
+Portable-only build failure does not fail the workflow or trigger GitHub's failed
+workflow notification. Lite and shared release failures remain visible.
+Missing or invalid Portable artifacts (including malformed reports and checksums)
+are omitted and listed in the publish job summary; they never waive Lite checks.
+Resumed drafts discard stale skipped Portable assets before publication.
+Scheduled duplicate detection requires only the Lite asset set.
 
 The final job validates binaries, checksums, manifests, build reports, and the
 Portable dependency-lock digest. Manifests and reports stay in workflow

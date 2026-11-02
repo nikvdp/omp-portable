@@ -1,37 +1,37 @@
 {
   "repo": "can1357/oh-my-pi",
-  "tag": "v18.10.3",
-  "release_id": 410932075,
+  "tag": "v18.15.0",
+  "release_id": 430630500,
   "license": {
     "name": "LICENSE",
-    "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.10.3/LICENSE",
+    "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.15.0/LICENSE",
     "sha256": "16c45f9d667442781f03fa198914cc39abcaa48ec5ed8f644643e554ca2fbf63",
     "size": 1144
   },
   "assets": {
     "darwin-arm64": {
       "name": "omp-darwin-arm64",
-      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.10.3/omp-darwin-arm64",
-      "sha256": "985c70cbcd264f6c6313de45ee81df6734664ec8ed8e72fa39fc644df625f0ce",
-      "size": 217142304
+      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.15.0/omp-darwin-arm64",
+      "sha256": "d36dfabf0ee52d6f08efadb59c46f0349545c6f6975522417adae29646e73e34",
+      "size": 215295120
     },
     "darwin-x64": {
       "name": "omp-darwin-x64",
-      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.10.3/omp-darwin-x64",
-      "sha256": "f19f9a7b4c715456f778ab3ae28fbc38978c6bae6296a832506bc7225f343942",
-      "size": 227734240
+      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.15.0/omp-darwin-x64",
+      "sha256": "dc86c67ff66418403dcf62a62bf8129fae8f24e50a1b4099716c8d36914fe204",
+      "size": 227240400
     },
     "linux-x64": {
       "name": "omp-linux-x64",
-      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.10.3/omp-linux-x64",
-      "sha256": "366ffcda80db57b825921b6ff4b0e5e623bc62cf18478f2828cd8a322fc72ff9",
-      "size": 276170720
+      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.15.0/omp-linux-x64",
+      "sha256": "6737ee2415555a3656cc7b89c14d1c25c18658ee4c0fd4f7309705149ccb7b0f",
+      "size": 276785328
     },
     "linux-arm64": {
       "name": "omp-linux-arm64",
-      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.10.3/omp-linux-arm64",
-      "sha256": "7f580e1fe06ebffe16ae46cc6881051aca4980db7f654702feefed5651555862",
-      "size": 237751080
+      "url": "https://github.com/can1357/oh-my-pi/releases/download/v18.15.0/omp-linux-arm64",
+      "sha256": "6d7d65030ba562d73cb0687b9710e0ac597b362a185d1911e7b211706dadd4ac",
+      "size": 236375032
     }
   }
 }

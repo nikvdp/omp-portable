@@ -1,11 +1,14 @@
 """Stage the published OMP source graph and a pinned native Bun runtime."""
 
+import base64
 import hashlib
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
+import urllib.request
 
 from platforms import ROOT
 from portable import _extract_tar
@@ -32,11 +35,78 @@ def runtime_bun(target, cache, acquire):
     return bun, asset
 
 
+def registry_metadata(package, version):
+    with urllib.request.urlopen(
+        f"https://registry.npmjs.org/{package}/{version}", timeout=60
+    ) as response:
+        return json.load(response)
+
+
+def bun_satisfies(bun, version, requirement):
+    return subprocess.check_output(
+        [str(bun), "-e", "console.log(Bun.semver.satisfies(process.argv[1], process.argv[2]))",
+         version, requirement], text=True
+    ).strip() == "true"
+
+
+def refresh_bun(tag, bun, cache, acquire):
+    """Keep the pin unless upstream requires a newer runtime; lock verified bytes."""
+    metadata = registry_metadata("@oh-my-pi/pi-coding-agent", tag.removeprefix("v"))
+    requirement = metadata["engines"]["bun"]
+    lock = json.loads(LOCK.read_text())
+    print(f"OMP {tag} requires Bun {requirement}; pinned {lock['version']}", flush=True)
+    if bun_satisfies(bun, lock["version"], requirement):
+        return bun
+    version = registry_metadata("bun", "latest")["version"]
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version) or not bun_satisfies(bun, version, requirement):
+        raise RuntimeError(f"Stable Bun {version} does not satisfy upstream {requirement}")
+    assets = {}
+    for target, old in lock["assets"].items():
+        package = old["url"].split("/-/", 1)[0].removeprefix("https://registry.npmjs.org/")
+        dist = registry_metadata(package, version)["dist"]
+        algorithm, encoded = dist["integrity"].split("-", 1)
+        if algorithm != "sha512":
+            raise RuntimeError(f"Missing npm SHA-512 integrity: {package}@{version}")
+        name = dist["tarball"].rsplit("/", 1)[1]
+        print(f"Locking Bun {version}: {target}", flush=True)
+        digest = hashlib.sha256()
+        integrity = hashlib.sha512()
+        size = 0
+        with tempfile.NamedTemporaryFile(dir=cache, delete=False) as output:
+            temporary = Path(output.name)
+            try:
+                with urllib.request.urlopen(dist["tarball"], timeout=120) as response:
+                    while chunk := response.read(1024 * 1024):
+                        digest.update(chunk)
+                        integrity.update(chunk)
+                        size += len(chunk)
+                        output.write(chunk)
+                if integrity.digest() != base64.b64decode(encoded, validate=True):
+                    raise RuntimeError(f"npm integrity mismatch: {name}")
+                output.close()
+                temporary.replace(cache / name)
+            finally:
+                temporary.unlink(missing_ok=True)
+        assets[target] = {"name": name, "url": dist["tarball"],
+                          "sha256": digest.hexdigest(), "size": size}
+    license_url = f"https://raw.githubusercontent.com/oven-sh/bun/bun-v{version}/LICENSE.md"
+    with urllib.request.urlopen(license_url, timeout=60) as response:
+        license_bytes = response.read()
+    updated = {"version": version, "assets": assets, "license": {
+        "name": f"Bun-LICENSE-{version}.md", "url": license_url,
+        "sha256": hashlib.sha256(license_bytes).hexdigest(), "size": len(license_bytes),
+    }}
+    LOCK.write_text(json.dumps(updated, indent=2) + "\n")
+    from platforms import detect_target
+
+    return runtime_bun(detect_target(), cache, acquire)[0]
+
+
 def install(bun, directory, env, frozen=True):
-    command = [str(bun), "install", "--production", "--ignore-scripts",
+    command = [str(bun), "install", "--ignore-scripts",
                "--linker=hoisted", "--minimum-release-age=0"]
     if frozen:
-        command.append("--frozen-lockfile")
+        command.extend(["--production", "--frozen-lockfile"])
     else:
         command.extend(["--lockfile-only", "--save-text-lockfile", "--os=*", "--cpu=*"])
     print("Installing locked OMP production dependency graph" if frozen else
