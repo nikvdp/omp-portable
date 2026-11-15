@@ -25,8 +25,9 @@ nix build .
 ./result/bin/omp --version
 ```
 
-The flake downloads the pinned Lite release (`18.13.2`, packaging `r5`) and
-unpacks it during the Nix build, without executing the downloaded launcher.
+The flake downloads the latest published Lite release recorded in
+`config/nix-release.json` and unpacks it during the Nix build, without executing
+the downloaded launcher. The release workflow keeps this file current on `main`.
 Bun, OMP source, dependencies, and license notices stay in `/nix/store`.
 Startup runs that unpacked copy directly: no first-launch extraction or repeated
 portable-payload checksum scan. Nix verifies the downloaded release hash, and
@@ -34,10 +35,18 @@ the build verifies the payload and every extracted file before applying fixups.
 
 Your normal configuration, credentials, sessions, extensions, profiles, and cache
 environment remain in use; nothing writes caches into the Nix store. `omp update`
-is blocked because Nix owns the installation. Upgrade the flake revision/input
-to one pinning a newer Lite release; updating only `nixpkgs` does not change OMP.
-The version, packaging revision, and four release hashes are pinned in `flake.nix`;
-`flake.lock` pins Nixpkgs separately from the single-file builder's source locks.
+is blocked because Nix owns the installation. Install from the repository to
+track its releases, then upgrade with:
+
+```sh
+nix profile install 'git+ssh://git@github.com/nikvdp/omp-portable'
+nix profile upgrade --refresh omp-portable
+```
+
+Each flake revision pins the version, release tag, and four asset hashes in
+`config/nix-release.json`; `flake.lock` pins Nixpkgs separately. Refreshing the
+profile fetches the current `main` pins, not a mutable unchecked download.
+Updating only Nixpkgs does not change OMP.
 
 The flake targets Apple silicon/Intel macOS and ARM64/x86-64 Linux. It packages
 Lite only: no Python, trafilatura, browser, or model weights are added. Extensions'
@@ -222,7 +231,13 @@ Lite is the mandatory product: all four native targets must pass Rust checks,
 strict offline smoke checks, and extraction tests before publication. The final
 job validates binaries, checksums, manifests, build reports, and runtime/package
 lock digests, uploads the executables and `.sha256` files to a draft, then
-publishes it. The workflow completes with a green check after publication;
+publishes it. That same publisher writes `config/nix-release.json` from the
+version and checksums of those validated Lite binaries. The publish job commits
+only that metadata file to `main`; Nix consumes the same release artifacts, with
+no separate version resolver or package build. Dry runs and failed publications
+leave existing Nix pins untouched. The bot commit uses `GITHUB_TOKEN`, so it
+does not trigger another push workflow. The workflow must be allowed to push to
+`main`; branch protection must permit that update.
 Portable is not part of its matrix or completion gate. Lite failures remain red.
 
 `.github/workflows/portable.yml` (**Portable best effort**) runs independently

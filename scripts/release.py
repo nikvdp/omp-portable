@@ -218,6 +218,7 @@ def publish_portable(target, dry_run):
 def publish(dry_run):
     lock, runtime_lock, runtime_digest, package_digest = publication_inputs()
     paths = []
+    hashes = {}
     version = lock["tag"].removeprefix("v")
     for target in lock["assets"]:
         binary = ROOT / "dist" / f"omp-lite-{version}-{target}"
@@ -225,6 +226,7 @@ def publish(dry_run):
             binary, "lite", target, lock, runtime_lock, runtime_digest,
             None, package_digest,
         ))
+        hashes[target] = binary.with_name(binary.name + ".sha256").read_text().split()[0]
     print(f"Verified {len(paths) // 2} Lite builds, {len(paths)} public release files", flush=True)
     if dry_run:
         return
@@ -285,6 +287,8 @@ def publish(dry_run):
                 )
     gh("release", "upload", tag, "--repo", repo, "--clobber", *map(str, paths))
     gh("release", "edit", tag, "--repo", repo, "--draft=false")
+    pinned = {"version": version, "release": tag, "hashes": hashes}
+    (ROOT / "config/nix-release.json").write_text(json.dumps(pinned, indent=2) + "\n")
 
 
 def write_handoff():

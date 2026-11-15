@@ -101,6 +101,10 @@ class Publication(unittest.TestCase):
             release.publish(False)
         upload = next(call.args for call in gh.call_args_list if call.args[:2] == ("release", "upload"))
         self.assertEqual(upload[6:], (str(self.lite), str(self.lite) + ".sha256"))
+        self.assertEqual(json.loads((self.root / "config/nix-release.json").read_text()), {
+            "version": "1.2.3", "release": release.downstream_tag("v1.2.3"),
+            "hashes": {"linux-x64": hashlib.sha256(self.lite.read_bytes()).hexdigest()},
+        })
 
     def test_same_lite_failures_block_publication(self):
         for case in ("missing binary", "missing report", "bad manifest JSON", "bad report shape",
@@ -112,6 +116,27 @@ class Publication(unittest.TestCase):
                     with self.assertRaises((OSError, ValueError, TypeError, RuntimeError)):
                         release.publish(False)
                     gh.assert_not_called()
+                self.assertFalse((self.root / "config/nix-release.json").exists())
+
+    def test_dry_run_and_failed_publication_preserve_nix_pins(self):
+        self.lock["repo"] = "local/upstream"
+        (self.root / "config/upstream-lock.json").write_text(json.dumps(self.lock))
+        pin = self.root / "config/nix-release.json"
+        original = '{"version":"0.0.1"}\n'
+        pin.write_text(original)
+        release.publish(True)
+        self.assertEqual(pin.read_text(), original)
+
+        def api(*args):
+            if args[:2] == ("release", "edit"):
+                raise RuntimeError("publication failed")
+            return "[[]]"
+
+        with patch.object(release, "gh", side_effect=api), \
+             patch.dict(os.environ, {"GITHUB_REPOSITORY": "local/test", "GITHUB_SHA": "abc123"}):
+            with self.assertRaisesRegex(RuntimeError, "publication failed"):
+                release.publish(False)
+        self.assertEqual(pin.read_text(), original)
 
     def handoff(self):
         value = {

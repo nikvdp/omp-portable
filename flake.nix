@@ -5,24 +5,24 @@
 
   outputs = { self, nixpkgs }:
     let
-      version = "18.13.2";
-      release = "omp-v${version}-r5";
+      pinned = builtins.fromJSON (builtins.readFile ./config/nix-release.json);
+      inherit (pinned) version release;
       targets = {
         aarch64-darwin = {
           target = "darwin-arm64";
-          sha256 = "916b0811519f3c8b7a1a5c6bb48897209b52d4110b21c986f3f94ea6ab3017a6";
+          sha256 = pinned.hashes.darwin-arm64;
         };
         x86_64-darwin = {
           target = "darwin-x64";
-          sha256 = "69632418013342d0b6e2caf116bcc4ec13af780669dbf054ad7a44221bcdeeef";
+          sha256 = pinned.hashes.darwin-x64;
         };
         aarch64-linux = {
           target = "linux-arm64";
-          sha256 = "f2dec7ea74b54a6a653f5f1f6eaf47d5e391b2ebc8cc2132ab3a0aec288b1691";
+          sha256 = pinned.hashes.linux-arm64;
         };
         x86_64-linux = {
           target = "linux-x64";
-          sha256 = "899f46d613c738eff3994c3a68065041e1fa2cba57ff1dcf4b111d70ff0eaf14";
+          sha256 = pinned.hashes.linux-x64;
         };
       };
       forAllSystems = nixpkgs.lib.genAttrs (builtins.attrNames targets);
@@ -41,8 +41,6 @@
               url = "https://github.com/nikvdp/omp-portable/releases/download/${release}/omp-lite-${version}-${target}";
               inherit sha256;
             };
-            # patchelf 0.15.2 relocates x64 libvips's .init/.plt without fixing
-            # their references. 0.18 preserves them when growing the RPATH.
             nativeBuildInputs = [ python pkgs.patchelfUnstable ]
               ++ lib.optionals stdenv.hostPlatform.isLinux [ pkgs.autoPatchelfHook ];
             buildInputs = lib.optionals stdenv.hostPlatform.isLinux [
@@ -61,10 +59,6 @@
               mkdir -p "$out/libexec/omp-lite" "$out/bin"
               cp -R unpacked/runtime unpacked/licenses "$out/libexec/omp-lite/"
               install -m755 unpacked/bin/omp.real "$out/libexec/omp-lite/bun"
-              ${lib.optionalString stdenv.hostPlatform.isLinux ''
-                # Both libc variants are shipped; glibc Bun must not pick musl's libvips.
-                rm -r "$out/libexec/omp-lite/runtime/node_modules/@img/"*linuxmusl*
-              ''}
               cat > "$out/bin/omp" <<'EOF'
               #!${pkgs.bash}/bin/bash
               args=("$@")
@@ -99,14 +93,14 @@
               [[ "$actual" == "omp/${version}" ]]
               "$out/bin/omp" --smoke-test
               "$out/libexec/omp-lite/bun" --no-env-file -e '
-                const sharp = require(process.argv[1]);
-                const png = await sharp({ create: { width: 2, height: 3, channels: 3,
-                  background: "#ff0000" } }).png().toBuffer();
-                const metadata = await sharp(png).metadata();
+                const source = Buffer.from(
+                  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2ioAAAAASUVORK5CYII=", "base64");
+                const png = await new Bun.Image(source).resize(2, 3).png().bytes();
+                const metadata = await new Bun.Image(png).metadata();
                 if (metadata.width !== 2 || metadata.height !== 3 || metadata.format !== "png")
                   throw new Error("Native image round-trip failed");
                 console.log("native image round-trip: ok");
-              ' "$out/libexec/omp-lite/runtime/node_modules/sharp"
+              '
               runHook postInstallCheck
             '';
 
