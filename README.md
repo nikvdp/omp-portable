@@ -32,6 +32,10 @@ Bun, OMP source, dependencies, and license notices stay in `/nix/store`.
 Startup runs that unpacked copy directly: no first-launch extraction or repeated
 portable-payload checksum scan. Nix verifies the downloaded release hash, and
 the build verifies the payload and every extracted file before applying fixups.
+The install uses a compiler-free build environment: it does not compile OMP or
+require GCC/Clang. Python is used only to verify and unpack the release; Linux
+also needs ELF patching tools and runtime libraries. Allow disk space for both
+the downloaded artifact and its unpacked runtime, plus Nix's dependencies.
 
 Your normal configuration, credentials, sessions, extensions, profiles, and cache
 environment remain in use; nothing writes caches into the Nix store. `omp update`

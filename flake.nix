@@ -34,7 +34,7 @@
           inherit (pkgs) lib stdenv;
           inherit (targets.${system}) target sha256;
           python = pkgs.python3.withPackages (p: [ p.zstandard ]);
-          omp = stdenv.mkDerivation {
+          omp = pkgs.stdenvNoCC.mkDerivation {
             pname = "omp-lite";
             inherit version;
             src = pkgs.fetchurl {
