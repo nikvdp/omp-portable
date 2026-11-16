@@ -1,10 +1,10 @@
 {
-  "version": "18.20.3",
-  "release": "omp-v18.20.3-r6",
+  "version": "18.22.0",
+  "release": "omp-v18.22.0-r6",
   "hashes": {
-    "darwin-arm64": "64b6b88a717fb9ff3dbec2901d186cfb1b8be58ebd9acdac73e9088fb093ae9b",
-    "darwin-x64": "bf7993c8b36b78a103909a395d14a662a8baa84abaad9af818fff18213ae6f92",
-    "linux-x64": "30ef3da1fbd489edd32d45d1186cd2847e6cf656a68759d32f4bf936fd707fed",
-    "linux-arm64": "8e9554a87674ca603cef63173857548c662456af38f1b551d9eae872017e671d"
+    "darwin-arm64": "24f4b8930819abaa30b653ebc302e7a599de7385c84eb9ff07f6d8de019670f0",
+    "darwin-x64": "6710edb7a9c2dbf6a28fe3a99dd2c19a9c1577dfb1948917b770c24f50fc475e",
+    "linux-x64": "c5b1e2388aa2c17de939e0fc64f4a5eb21ee63c17f27ef606bca46d121acaba4",
+    "linux-arm64": "9e6066b3252e212064d7a241c1c8a79fd1d5f452fbb4454d4d4d4400e3c9b28c"
   }
 }
