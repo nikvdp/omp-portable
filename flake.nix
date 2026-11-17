@@ -74,6 +74,10 @@
               done
               unset PI_COMPILED PI_BUNDLED
               export PATH="$out/bin''${PATH:+:$PATH}"
+              if [[ "''${HERDR_ENV:-}" == 1 && "$(uname -s)" == Darwin ]]; then
+                exec -a omp "$out/libexec/omp-lite/bun" --no-env-file \
+                  "$out/libexec/omp-lite/runtime/node_modules/@oh-my-pi/pi-coding-agent/src/cli.ts" "$@"
+              fi
               exec "$out/libexec/omp-lite/bun" --no-env-file \
                 "$out/libexec/omp-lite/runtime/node_modules/@oh-my-pi/pi-coding-agent/src/cli.ts" "$@"
               EOF

@@ -47,6 +47,9 @@ nix profile install 'git+ssh://git@github.com/nikvdp/omp-portable'
 nix profile upgrade --refresh omp-portable
 ```
 
+On macOS inside Herdr, the launcher preserves `omp` as the foreground process
+identity, matching OMP's native launcher so Herdr can recognize its integration.
+
 Each flake revision pins the version, release tag, and four asset hashes in
 `config/nix-release.json`; `flake.lock` pins Nixpkgs separately. Refreshing the
 profile fetches the current `main` pins, not a mutable unchecked download.
