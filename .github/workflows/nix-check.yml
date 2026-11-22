@@ -1,0 +1,79 @@
+name: Check Lite with Nix
+on:
+  workflow_call:
+    inputs:
+      candidate-tag:
+        type: string
+        default: ''
+      ref:
+        type: string
+        default: ''
+permissions:
+  contents: read
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: linux-x64
+          - runner: ubuntu-24.04-arm
+            target: linux-arm64
+          - runner: macos-15
+            target: darwin-arm64
+          - runner: macos-15-intel
+            target: darwin-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        if: inputs.candidate-tag != ''
+        with:
+          name: build-lite-${{ matrix.target }}
+          path: dist
+      - uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # v32.0.0
+        timeout-minutes: 5
+        with:
+          # Nix 2.36 dropped the Intel macOS installer.
+          install_url: ${{ matrix.target == 'darwin-x64' && 'https://releases.nixos.org/nix/nix-2.34.7/install' || '' }}
+      - name: Install Lite and check its version
+        timeout-minutes: 25
+        env:
+          CANDIDATE_TAG: ${{ inputs.candidate-tag }}
+          BUILD_TARGET: ${{ matrix.target }}
+        run: |
+          flake=.
+          if [ -n "$CANDIDATE_TAG" ]; then
+            version=${CANDIDATE_TAG#omp-v}
+            version=${version%-r*}
+            binary="$PWD/dist/omp-lite-$version-$BUILD_TARGET"
+            nix-store --add-fixed sha256 "$binary"
+            candidate="$RUNNER_TEMP/nix-candidate"
+            mkdir -p "$candidate/config" "$candidate/scripts" "$candidate/tests"
+            cp flake.nix flake.lock "$candidate/"
+            cp scripts/extract_lite.py "$candidate/scripts/"
+            cp tests/test_extract_lite.py "$candidate/tests/"
+            python3 - "$candidate/config/nix-release.json" "$CANDIDATE_TAG" "$version" "$BUILD_TARGET" "$binary.sha256" <<'PY'
+          import json, sys
+          from pathlib import Path
+          pin, tag, version, target, checksum = sys.argv[1:]
+          Path(pin).write_text(json.dumps({
+              "version": version, "release": tag,
+              "hashes": {target: Path(checksum).read_text().split()[0]},
+          }))
+          PY
+            flake="path:$(cd "$candidate" && pwd -P)"
+          else
+            version=$(python3 -c 'import json; print(json.load(open("config/nix-release.json"))["version"])')
+          fi
+          nix profile add --profile "$RUNNER_TEMP/omp-nix-profile" --no-write-lock-file "$flake#omp"
+          home="$RUNNER_TEMP/omp-nix-home"
+          mkdir -p "$home"
+          actual=$(HOME="$home" "$RUNNER_TEMP/omp-nix-profile/bin/omp" --version)
+          echo "$actual"
+          test "$actual" = "omp/$version"

@@ -27,8 +27,8 @@ nix build .
 
 The flake downloads the newest stable Lite release recorded in
 `config/nix-release.json` and unpacks it without executing the downloaded
-launcher. Release CI reconciles this pin from the published assets on `main`,
-including when no new Lite build is needed.
+launcher. The downstream Nix workflow reconciles this pin from the published
+assets on `main`, including when no new Lite build is needed.
 Bun, OMP source, dependencies, and license notices stay in `/nix/store`.
 Startup runs that unpacked copy directly: no first-launch extraction or repeated
 portable-payload checksum scan. Nix verifies the downloaded release hash, and
@@ -235,22 +235,25 @@ One production dependency lock is generated for all build jobs.
 `config/runtime-lock.json` pins native Bun archives. Offline extension and runtime
 smoke checks remain mandatory. Optional component versions stay pinned separately.
 
-Lite is the mandatory product: all four native targets must pass Rust checks,
-strict offline smoke checks, and extraction tests before publication. CI also
-installs the candidate through this flake in a fresh Nix profile on each target,
-checks its version, and runs the flake's installed extension SDK check. Intel
-macOS Nix setup and install failures are reported but do not block publication;
-the native Intel Lite build and its tests are still required. The publisher
-validates the artifacts and uploads the executables and checksums to a draft
-before publishing it. Portable does not gate Lite or Nix.
+All four native Lite targets must pass Rust checks, strict offline smoke checks,
+and extraction tests before publication. The publisher validates the artifacts
+and uploads the executables and checksums to a draft before publishing it.
+Neither Nix nor Portable gates Lite publication.
 
-The Nix reconciliation job selects the newest stable published Lite version
-and packaging revision and requires all four uploaded binaries and checksums.
-It updates only `config/nix-release.json` on `main` using GitHub's binary asset
-hashes. Already-published releases can repair stale pins without rebuilding;
-dry runs and drafts cannot update the pin. The bot uses `GITHUB_TOKEN`, so its
-commit does not trigger another push workflow. Branch protection must allow
-the bot update. A failed build or pin update leaves a red workflow.
+**Update Nix from published Lite** runs separately after the Lite release
+workflow. It selects the newest stable published Lite version and packaging
+revision and requires all four uploaded binaries and checksums. It updates only
+`config/nix-release.json` on `main` using GitHub's binary asset hashes. An
+already-published release can repair stale pins without rebuilding; dry runs,
+drafts, and incomplete releases cannot advance the pin. The bot uses
+`GITHUB_TOKEN`, so its commit does not trigger another push workflow. Branch
+protection must allow the bot update.
+
+The Nix workflow checks the reconciled flake in a fresh profile on all four
+targets, verifies the version, and runs the flake's installed extension SDK
+check. Hourly runs skip the install matrix if the pin is unchanged. PRs and
+non-main pushes perform the same checks against their own Lite candidates in a
+separate job. Nix failures are visible without holding up Lite or Portable.
 
 `.github/workflows/portable.yml` (**Portable best effort**) runs independently
 after a successful Lite release workflow on `main`. It checks out that run's

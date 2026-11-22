@@ -144,16 +144,17 @@ allowing local worker sockets. Every smoke run first proves that a loopback
 connection receives a permission denial; missing or ineffective network guards
 fail the test. Dead proxies are not used as evidence of offline operation.
 
-Both workflows cover Lite and Portable on all four native hosts. The release
-workflow polls upstream hourly and passes the same upstream, runtime, package,
-and Portable locks to all eight builds. Lite is mandatory: every Lite build must
-pass before publication. Portable is best-effort with `continue-on-error`; the publish job
-validates the Portable artifacts that exist, records skipped ones, and refuses
-to publish only when a Lite artifact is missing or invalid. Reports and
-manifests remain internal validation inputs; public assets are executables and
-SHA-256 files only. The `omp-v<upstream>` downstream tag carries the packaging
-revision so rebuilt releases never overwrite published ones. Publication uses a
-draft so interrupted uploads do not expose an incomplete release.
+The Lite release workflow polls upstream hourly and gives all four native
+builds the same upstream and runtime locks. Every Lite target must pass before
+publication. The `omp-v<upstream>-r<N>` tag includes a packaging revision so
+rebuilds never overwrite published releases. Publication uses a draft so
+interrupted uploads do not expose an incomplete release. Reports and manifests
+remain internal; public assets are executables and SHA-256 files only.
+
+Nix and Portable follow Lite in separate workflows. Nix reconciles its flake
+pin from the published Lite binaries and checks the resulting install. Portable
+uses the exact release's source and locks to build and append optional assets.
+Neither can delay Lite or block the other.
 
 ## Upstream and license review
 

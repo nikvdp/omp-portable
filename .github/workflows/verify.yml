@@ -9,3 +9,8 @@ permissions:
 jobs:
   candidate:
     uses: ./.github/workflows/lite-candidate.yml
+  nix:
+    needs: candidate
+    uses: ./.github/workflows/nix-check.yml
+    with:
+      candidate-tag: ${{ needs.candidate.outputs.tag }}

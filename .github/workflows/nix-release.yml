@@ -1,0 +1,48 @@
+name: Update Nix from published Lite
+on:
+  workflow_run:
+    workflows: [Release OMP Lite]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: omp-nix-release
+  cancel-in-progress: false
+jobs:
+  sync:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule' ||
+      (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.display_title == 'Publish OMP Lite (manual)'))
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    outputs:
+      ref: ${{ steps.pin.outputs.ref }}
+      changed: ${{ steps.pin.outputs.changed }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+      - name: Reconcile Nix with the latest published Lite release
+        id: pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/release.py sync-nix
+          if ! git diff --quiet -- config/nix-release.json; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git commit -m 'Update Nix release pins to install the latest published Lite' -- config/nix-release.json
+            git push origin HEAD:main
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+          echo "ref=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+  verify:
+    needs: sync
+    if: needs.sync.outputs.changed == 'true' || github.event.workflow_run.event != 'schedule'
+    uses: ./.github/workflows/nix-check.yml
+    with:
+      ref: ${{ needs.sync.outputs.ref }}
