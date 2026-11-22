@@ -52,7 +52,6 @@ def bun_satisfies(bun, version, requirement):
 def refresh_bun(tag, bun, cache, acquire):
     """Keep the pin unless upstream requires a newer runtime; lock verified bytes."""
     metadata = registry_metadata("@oh-my-pi/pi-coding-agent", tag.removeprefix("v"))
-    requirement = metadata["engines"]["bun"]
     lock = json.loads(LOCK.read_text())
     print(f"OMP {tag} requires Bun {requirement}; pinned {lock['version']}", flush=True)
     if bun_satisfies(bun, lock["version"], requirement):
@@ -149,6 +148,20 @@ def stage_runtime(stage, target, cache, acquire, env, tag):
         else:
             shutil.copy2(target_path, link)
     entry = stage / ENTRY
+    # OMP 19.1.0's npm package imports this unpublished sibling file (upstream #20058).
+    if tag == "v19.1.0":
+        source = cache / "browser-relay-messages-v19.1.0.ts"
+        acquire(
+            "https://raw.githubusercontent.com/can1357/oh-my-pi/"
+            "a7135b8f31826c878734388b648f52bed8da436e/packages/browser-relay/extension/messages.ts",
+            source, "4096c0cd05e4ae3c942998d33d119e1d4fbc02b8354b9bdcaeff264a15d9dd38", 15058,
+        )
+        destination = modules / "@oh-my-pi/browser-relay/extension/messages.ts"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(source.read_text().replace(
+            "../../coding-agent/src/tools/browser/relay/protocol",
+            "../../pi-coding-agent/src/tools/browser/relay/protocol",
+        ))
     if not entry.is_file():
         raise RuntimeError(f"Published OMP package is missing source entry: {ENTRY}")
     license_asset = json.loads(LOCK.read_text())["license"]

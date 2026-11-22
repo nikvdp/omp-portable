@@ -18,6 +18,11 @@ Portable adds locked Python, trafilatura, and browser payloads. Linux launchers
 compile statically against musl; Bun and native packages use the host's glibc.
 Windows remains unsupported.
 
+For OMP 19.1.0 only, staging restores the browser-relay `messages.ts` module
+omitted from npm ([upstream #20058](https://github.com/can1357/oh-my-pi/issues/20058)).
+The builder verifies the file from the matching upstream commit by SHA-256 and
+points its return import at the installed `pi-coding-agent` package.
+
 ## Payload format
 
 A compressed tar stream is followed by a 64-byte footer. Integer fields are
@@ -52,7 +57,7 @@ malformed-command and out-of-bounds fixtures exercise the parser on Linux.
 The embedded Mac launcher is linked in a separate Cargo target directory so it
 cannot become the next build's shim and recursively accumulate old payloads.
 `launcher-bin/omp` is the small standalone launcher; it is signed before its
-hash is recorded. Published OMP source is included without patching or rebuilding.
+hash is recorded. The published OMP package itself is not patched or rebuilt.
 The format permits lazy virtual-memory mapping of the payload but extraction
 reads through bounded file streams; it does not allocate the archive in RAM.
 
