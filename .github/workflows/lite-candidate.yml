@@ -110,7 +110,17 @@ jobs:
           "$RUNNER_TEMP/omp-tests/bin/pip" install zstandard==0.23.0
           "$RUNNER_TEMP/omp-tests/bin/python" -m unittest discover -s tests -v
       - uses: cachix/install-nix-action@bb0495a1086c46893eee56f32fd192dfe4a15bb9 # v32.0.0
+        id: nix-setup
+        continue-on-error: ${{ matrix.target == 'darwin-x64' }}
+        timeout-minutes: 5
+        with:
+          # Nix 2.36 dropped the Intel macOS installer.
+          install_url: ${{ matrix.target == 'darwin-x64' && 'https://releases.nixos.org/nix/nix-2.34.7/install' || '' }}
       - name: Verify downstream Nix install of the Lite candidate
+        id: nix-verify
+        if: steps.nix-setup.outcome == 'success'
+        continue-on-error: ${{ matrix.target == 'darwin-x64' }}
+        timeout-minutes: 25
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           BUILD_TARGET: ${{ matrix.target }}
@@ -140,6 +150,9 @@ jobs:
           actual=$(HOME="$home" "$RUNNER_TEMP/omp-nix-profile/bin/omp" --version)
           echo "$actual"
           test "$actual" = "omp/$version"
+      - name: Report advisory Intel macOS Nix failure
+        if: matrix.target == 'darwin-x64' && (steps.nix-setup.outcome == 'failure' || steps.nix-verify.outcome == 'failure')
+        run: echo '::warning::Intel macOS Nix validation failed. The native Lite build and tests passed; the release is not blocked.'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: build-lite-${{ matrix.target }}

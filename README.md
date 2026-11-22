@@ -238,9 +238,11 @@ smoke checks remain mandatory. Optional component versions stay pinned separatel
 Lite is the mandatory product: all four native targets must pass Rust checks,
 strict offline smoke checks, and extraction tests before publication. CI also
 installs the candidate through this flake in a fresh Nix profile on each target,
-checks its version, and runs the flake's installed extension SDK check. The
-publisher validates the artifacts and uploads the executables and checksums to
-a draft before publishing it. Portable does not gate Lite or Nix.
+checks its version, and runs the flake's installed extension SDK check. Intel
+macOS Nix setup and install failures are reported but do not block publication;
+the native Intel Lite build and its tests are still required. The publisher
+validates the artifacts and uploads the executables and checksums to a draft
+before publishing it. Portable does not gate Lite or Nix.
 
 The Nix reconciliation job selects the newest stable published Lite version
 and packaging revision and requires all four uploaded binaries and checksums.
