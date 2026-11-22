@@ -7,47 +7,5 @@ on:
 permissions:
   contents: read
 jobs:
-  verify:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            target: linux-x64
-          - runner: ubuntu-24.04-arm
-            target: linux-arm64
-          - runner: macos-15
-            target: darwin-arm64
-          - runner: macos-15-intel
-            target: darwin-x64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
-    env:
-      RUSTUP_TOOLCHAIN: 1.98.1
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          persist-credentials: false
-      - name: Install musl toolchain for static Linux launchers
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-        if: startsWith(matrix.target, 'linux-')
-      - name: Install explicit Rust toolchain
-        env:
-          BUILD_TARGET: ${{ matrix.target }}
-        run: |
-          rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
-          if [[ "$BUILD_TARGET" == linux-* ]]; then
-            rustup target add --toolchain 1.98.1 ${{ matrix.target == 'linux-x64' && 'x86_64-unknown-linux-musl' || 'aarch64-unknown-linux-musl' }}
-          fi
-      - name: Check Rust source and format
-        run: |
-          cargo fmt --all --check
-          cargo clippy --locked --all-targets -- -D warnings
-          cargo test --locked
-      - name: Build native artifact and run offline smoke tests
-        run: ./build.sh --edition lite --target '${{ matrix.target }}' --strict-host
-      - name: Exercise native extraction lifecycle
-        run: |
-          python3 -m venv "$RUNNER_TEMP/omp-tests"
-          "$RUNNER_TEMP/omp-tests/bin/pip" install zstandard==0.23.0
-          "$RUNNER_TEMP/omp-tests/bin/python" -m unittest discover -s tests -v
+  candidate:
+    uses: ./.github/workflows/lite-candidate.yml

@@ -101,10 +101,6 @@ class Publication(unittest.TestCase):
             release.publish(False)
         upload = next(call.args for call in gh.call_args_list if call.args[:2] == ("release", "upload"))
         self.assertEqual(upload[6:], (str(self.lite), str(self.lite) + ".sha256"))
-        self.assertEqual(json.loads((self.root / "config/nix-release.json").read_text()), {
-            "version": "1.2.3", "release": release.downstream_tag("v1.2.3"),
-            "hashes": {"linux-x64": hashlib.sha256(self.lite.read_bytes()).hexdigest()},
-        })
 
     def test_same_lite_failures_block_publication(self):
         for case in ("missing binary", "missing report", "bad manifest JSON", "bad report shape",
@@ -249,6 +245,44 @@ class Publication(unittest.TestCase):
         upload = next(call.args for call in gh.call_args_list if call.args[:2] == ("release", "upload"))
         self.assertIn(str(self.lite), upload)
         self.assertNotIn(str(self.portable), upload)
+
+    def test_nix_pin_recovers_from_published_assets_without_a_build(self):
+        (self.root / "config/targets.json").write_text(json.dumps({
+            "linux-x64": {}, "linux-arm64": {}, "darwin-x64": {}, "darwin-arm64": {},
+        }))
+        pin = self.root / "config/nix-release.json"
+        old_pin = '{"version":"1.2.9"}\n'
+        pin.write_text(old_pin)
+        stable = {"draft": False, "prerelease": False}
+        releases = [[
+            stable | {"tag_name": "omp-v1.2.9-r99", "id": 9},
+            stable | {"tag_name": "omp-v1.2.10-r9", "id": 19},
+            stable | {"tag_name": "omp-v1.2.11-r1", "id": 31, "draft": True},
+            stable | {"tag_name": "omp-v1.3.0-r1", "id": 40, "prerelease": True},
+        ], [stable | {"tag_name": "omp-v1.2.10-r10", "id": 20}]]
+        hashes = {target: str(i) * 64 for i, target in enumerate(
+            ("linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"), 1
+        )}
+        assets = []
+        for target, digest in hashes.items():
+            binary = f"omp-lite-1.2.10-{target}"
+            assets.extend([
+                {"name": binary, "state": "uploaded", "digest": f"sha256:{digest}"},
+                {"name": f"{binary}.sha256", "state": "uploaded"},
+            ])
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "local/test"}), \
+             patch.object(release, "gh", return_value=json.dumps(releases)), \
+             patch.object(release, "release_assets", side_effect=lambda repo, release_id: {20: assets}[release_id]):
+            # A partially uploaded latest release cannot advance the pin.
+            checksum = assets.pop()
+            with self.assertRaisesRegex(RuntimeError, "darwin-arm64"):
+                release.sync_nix()
+            self.assertEqual(pin.read_text(), old_pin)
+            assets.append(checksum)
+            release.sync_nix()
+        self.assertEqual(json.loads(pin.read_text()), {
+            "version": "1.2.10", "release": "omp-v1.2.10-r10", "hashes": hashes,
+        })
 
 
 class RuntimeSelection(unittest.TestCase):

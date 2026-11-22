@@ -52,6 +52,7 @@ def bun_satisfies(bun, version, requirement):
 def refresh_bun(tag, bun, cache, acquire):
     """Keep the pin unless upstream requires a newer runtime; lock verified bytes."""
     metadata = registry_metadata("@oh-my-pi/pi-coding-agent", tag.removeprefix("v"))
+    requirement = metadata["engines"]["bun"]
     lock = json.loads(LOCK.read_text())
     print(f"OMP {tag} requires Bun {requirement}; pinned {lock['version']}", flush=True)
     if bun_satisfies(bun, lock["version"], requirement):

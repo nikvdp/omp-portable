@@ -96,6 +96,22 @@
               actual=$("$out/bin/omp" --version)
               [[ "$actual" == "omp/${version}" ]]
               "$out/bin/omp" --smoke-test
+              mkdir -p "$HOME/.omp/agent/extensions"
+              cat > sdk-probe.ts <<'EOF'
+              import { writeFileSync } from "node:fs";
+              import { AgentRegistry } from "@oh-my-pi/pi-coding-agent";
+              import { resetYieldTurnState } from "@oh-my-pi/pi-coding-agent/tools/yield";
+              import { assembleYieldResult } from "@oh-my-pi/pi-tui/tools/task-yield-assembly";
+              export default function(pi) {
+                if (AgentRegistry !== pi.pi.AgentRegistry || typeof resetYieldTurnState !== "function" ||
+                    typeof assembleYieldResult !== "function") throw new Error("OMP extension SDK mismatch");
+                writeFileSync(process.env.OMP_NIX_PROBE, "ok\n");
+              }
+              EOF
+              ln -s "$PWD/sdk-probe.ts" "$HOME/.omp/agent/extensions/sdk-probe.ts"
+              export OMP_NIX_PROBE="$PWD/sdk-probe-result"
+              "$out/bin/omp" models ls --json > models.json
+              test "$(cat "$OMP_NIX_PROBE")" = ok
               "$out/libexec/omp-lite/bun" --no-env-file -e '
                 const source = Buffer.from(
                   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a2ioAAAAASUVORK5CYII=", "base64");

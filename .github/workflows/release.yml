@@ -16,109 +16,13 @@ concurrency:
   group: omp-native-release
   cancel-in-progress: false
 jobs:
-  prepare:
-    runs-on: ubuntu-24.04
-    outputs:
-      needed: ${{ steps.release.outputs.needed }}
-      tag: ${{ steps.release.outputs.tag }}
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.12'
-      - name: Ensure GitHub CLI is available
-        run: command -v gh || { sudo apt-get update && sudo apt-get install -y gh; }
-      - name: Resolve latest upstream release
-        id: release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CHECK_EXISTING: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
-        run: |
-          if [ "$CHECK_EXISTING" = true ]; then
-            python3 scripts/release.py prepare --check-existing
-          else
-            python3 scripts/release.py prepare
-          fi
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: steps.release.outputs.needed == 'true'
-        with:
-          name: release-locks
-          path: |
-            config/upstream-lock.json
-            config/portable-lock.json
-            config/runtime-lock.json
-            config/runtime-package.json
-            config/runtime-bun.lock
-          if-no-files-found: error
-  build:
-    needs: prepare
-    if: needs.prepare.outputs.needed == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: ubuntu-24.04
-            target: linux-x64
-          - runner: ubuntu-24.04-arm
-            target: linux-arm64
-          - runner: macos-15
-            target: darwin-arm64
-          - runner: macos-15-intel
-            target: darwin-x64
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
-    env:
-      RUSTUP_TOOLCHAIN: 1.98.1
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: release-locks
-          path: config
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.12'
-      - name: Install Rust
-        env:
-          BUILD_TARGET: ${{ matrix.target }}
-        shell: bash
-        run: |
-          if ! command -v rustup >/dev/null; then
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
-          fi
-          export PATH="$HOME/.cargo/bin:$PATH"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          rustup toolchain install 1.98.1 --profile minimal --component clippy --component rustfmt
-          if [[ "$BUILD_TARGET" == linux-* ]]; then
-            rustup target add --toolchain 1.98.1 ${{ matrix.target == 'linux-x64' && 'x86_64-unknown-linux-musl' || 'aarch64-unknown-linux-musl' }}
-          fi
-      - name: Install musl cross-compiler for static Linux launchers
-        if: startsWith(matrix.target, 'linux-')
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - name: Check Rust
-        run: |
-          cargo fmt --all --check
-          cargo clippy --locked --all-targets -- -D warnings
-          cargo test --locked
-      - name: Build and smoke test
-        run: ./build.sh --edition lite --target '${{ matrix.target }}' --strict-host
-      - name: Verify extraction lifecycle
-        run: |
-          python3 -m venv "$RUNNER_TEMP/omp-tests"
-          "$RUNNER_TEMP/omp-tests/bin/pip" install zstandard==0.23.0
-          "$RUNNER_TEMP/omp-tests/bin/python" -m unittest discover -s tests -v
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: build-lite-${{ matrix.target }}
-          path: dist/omp-lite-*-${{ matrix.target }}*
-          if-no-files-found: error
+  candidate:
+    uses: ./.github/workflows/lite-candidate.yml
+    with:
+      check-existing: ${{ github.event_name != 'workflow_dispatch' || inputs.publish }}
   publish:
-    needs: [prepare, build]
-    if: needs.prepare.outputs.needed == 'true' && (github.event_name != 'workflow_dispatch' || inputs.publish)
+    needs: candidate
+    if: github.ref == 'refs/heads/main' && needs.candidate.outputs.needed == 'true' && (github.event_name != 'workflow_dispatch' || inputs.publish)
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -161,13 +65,25 @@ jobs:
             config/runtime-package.json
             config/runtime-bun.lock
           if-no-files-found: error
-      - name: Commit changed Nix pins
+  sync-nix:
+    needs: publish
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+      - name: Reconcile Nix with the latest published Lite release
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          python3 scripts/release.py sync-nix
           if git diff --quiet -- config/nix-release.json; then
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add config/nix-release.json
-          git commit -m 'Update Nix release pins to install the latest published Lite'
+          git commit -m 'Update Nix release pins to install the latest published Lite' -- config/nix-release.json
           git push origin HEAD:main

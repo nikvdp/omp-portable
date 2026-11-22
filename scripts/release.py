@@ -46,6 +46,37 @@ def gh(*args):
     return subprocess.check_output(["gh", *args], text=True)
 
 
+
+def sync_nix():
+    repo = os.environ["GITHUB_REPOSITORY"]
+    targets = json.loads((ROOT / "config/targets.json").read_text())
+    pages = json.loads(gh("api", "--paginate", "--slurp", f"repos/{repo}/releases"))
+    latest = None
+    latest_key = ()
+    for page in pages:
+        for release in page:
+            if release["draft"] or release["prerelease"]:
+                continue
+            match = re.fullmatch(r"omp-v(\d+)\.(\d+)\.(\d+)-r(\d+)", release["tag_name"])
+            if match and (key := tuple(map(int, match.groups()))) > latest_key:
+                latest, latest_key = release, key
+    if latest is None:
+        raise RuntimeError(f"No stable Lite release published in {repo}")
+    version = ".".join(map(str, latest_key[:3]))
+    tag = latest["tag_name"]
+    assets = {asset["name"]: asset for asset in release_assets(repo, latest["id"])
+              if asset["state"] == "uploaded"}
+    hashes = {}
+    for target in targets:
+        name = f"omp-lite-{version}-{target}"
+        digest = assets.get(name, {}).get("digest") or ""
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest) or f"{name}.sha256" not in assets:
+            raise RuntimeError(f"Cannot pin {tag}: missing Lite asset, checksum, or SHA-256 digest for {target}")
+        hashes[target] = digest[7:]
+    pinned = {"version": version, "release": tag, "hashes": hashes}
+    (ROOT / "config/nix-release.json").write_text(json.dumps(pinned, indent=2) + "\n")
+    print(f"Nix pin verified against {tag} ({len(hashes)} published Lite targets)", flush=True)
+
 def prepare(check_existing):
     lock = json.loads((ROOT / "config/upstream-lock.json").read_text())
     release = json.loads(gh("api", f"repos/{lock['repo']}/releases/latest"))
@@ -218,7 +249,6 @@ def publish_portable(target, dry_run):
 def publish(dry_run):
     lock, runtime_lock, runtime_digest, package_digest = publication_inputs()
     paths = []
-    hashes = {}
     version = lock["tag"].removeprefix("v")
     for target in lock["assets"]:
         binary = ROOT / "dist" / f"omp-lite-{version}-{target}"
@@ -226,7 +256,6 @@ def publish(dry_run):
             binary, "lite", target, lock, runtime_lock, runtime_digest,
             None, package_digest,
         ))
-        hashes[target] = binary.with_name(binary.name + ".sha256").read_text().split()[0]
     print(f"Verified {len(paths) // 2} Lite builds, {len(paths)} public release files", flush=True)
     if dry_run:
         return
@@ -287,8 +316,6 @@ def publish(dry_run):
                 )
     gh("release", "upload", tag, "--repo", repo, "--clobber", *map(str, paths))
     gh("release", "edit", tag, "--repo", repo, "--draft=false")
-    pinned = {"version": version, "release": tag, "hashes": hashes}
-    (ROOT / "config/nix-release.json").write_text(json.dumps(pinned, indent=2) + "\n")
 
 
 def write_handoff():
@@ -309,13 +336,17 @@ def write_handoff():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["prepare", "publish", "handoff", "check-handoff", "publish-portable"])
+    parser.add_argument("command", choices=[
+        "prepare", "publish", "sync-nix", "handoff", "check-handoff", "publish-portable",
+    ])
     parser.add_argument("--check-existing", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--target")
     args = parser.parse_args()
     if args.command == "prepare":
         prepare(args.check_existing)
+    elif args.command == "sync-nix":
+        sync_nix()
     elif args.command == "handoff":
         write_handoff()
     elif args.command == "check-handoff":
