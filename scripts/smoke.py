@@ -497,7 +497,26 @@ def main():
         env["SHELL"] = "/bin/bash"
         env["OPENAI_API_KEY"] = "offline-test-placeholder-never-sent"
         # Load a symlinked user extension with nested imports outside the payload.
-        # Root wildcard TUI imports and host singleton identity failed in binaries.
+        # Keep the old component/yield API checks for older release locks.
+        if tuple(map(int, version.split("."))) < (19, 2, 0):
+            tui_probe = '''
+import { Text } from "@oh-my-pi/pi-tui";
+import { assembleYieldResult } from "@oh-my-pi/pi-tui/tools/task-yield-assembly";
+export function renderProbe(text) {
+    if (typeof assembleYieldResult !== "function") throw new Error("Missing task yield assembly");
+    return new Text(text, 0, 0).render(80);
+}
+'''
+        else:
+            tui_probe = '''
+import { jsx } from "@oh-my-pi/pi-tui";
+import { paintNode, staticEnvironment } from "@oh-my-pi/pi-tui/term/paint";
+import "@oh-my-pi/pi-tui/term/painters/layout";
+import { currentTheme } from "@oh-my-pi/pi-tui/theme/runtime";
+export function renderProbe(text) {
+    return paintNode(staticEnvironment(currentTheme()), jsx("text", { text }), 80).rows;
+}
+'''
         extension_dir = base / "user-extension"
         extension_dir.mkdir()
         (extension_dir / "helper.ts").write_text('''
@@ -505,16 +524,14 @@ import { AgentRegistry } from "@oh-my-pi/pi-coding-agent/registry/agent-registry
 import { AsyncJobManager } from "@oh-my-pi/pi-coding-agent/async";
 import { cfgAsyncEnabled } from "@oh-my-pi/pi-coding-agent/tools/settings";
 import { cfgTaskMaxRecursionDepth } from "@oh-my-pi/pi-coding-agent/task/settings";
-import { assembleYieldResult } from "@oh-my-pi/pi-tui/tools/task-yield-assembly";
-export { AgentRegistry, AsyncJobManager, cfgAsyncEnabled, cfgTaskMaxRecursionDepth, assembleYieldResult };
-''')
+export { AgentRegistry, AsyncJobManager, cfgAsyncEnabled, cfgTaskMaxRecursionDepth };
+''' + tui_probe)
         extension_evidence = base / "extension-evidence.json"
         (extension_dir / "index.ts").write_text('''
 import { writeFileSync } from "node:fs";
 import { AgentRegistry } from "@oh-my-pi/pi-coding-agent";
-import { Text } from "@oh-my-pi/pi-tui";
 import { AgentRegistry as NestedRegistry, AsyncJobManager, cfgAsyncEnabled,
-    cfgTaskMaxRecursionDepth, assembleYieldResult } from "./helper";
+    cfgTaskMaxRecursionDepth, renderProbe } from "./helper";
 export default function(pi) {
     if (AgentRegistry !== NestedRegistry || AgentRegistry !== pi.pi.AgentRegistry)
         throw new Error("Extension loaded a duplicate host registry");
@@ -522,9 +539,9 @@ export default function(pi) {
     pi.on("session_start", async (_event, ctx) => {
         const session = AgentRegistry.global().list().find(ref => ref.session?.sessionManager === ctx.sessionManager)?.session;
         if (!session) throw new Error("Extension cannot see its live host session");
-        const text = new Text("portable-extension-sentinel", 0, 0);
-        if (!text.render(80).join("\\n").includes("portable-extension-sentinel")) throw new Error("TUI rendering failed");
-        if (typeof assembleYieldResult !== "function" || typeof AsyncJobManager !== "function") throw new Error("Missing task runtime exports");
+        if (!renderProbe("portable-extension-sentinel").join("\\n").includes("portable-extension-sentinel"))
+            throw new Error("TUI rendering failed");
+        if (typeof AsyncJobManager !== "function") throw new Error("Missing task runtime exports");
         writeFileSync(process.env.PORTABLE_EXTENSION_EVIDENCE, JSON.stringify({
             registry: true, tui: true,
             asyncEnabled: cfgAsyncEnabled.get(session.settings),

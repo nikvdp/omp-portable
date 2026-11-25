@@ -101,10 +101,20 @@
               import { writeFileSync } from "node:fs";
               import { AgentRegistry } from "@oh-my-pi/pi-coding-agent";
               import { resetYieldTurnState } from "@oh-my-pi/pi-coding-agent/tools/yield";
-              import { assembleYieldResult } from "@oh-my-pi/pi-tui/tools/task-yield-assembly";
+              ${if lib.versionAtLeast version "19.2.0" then ''
+                import { isUiNode, jsx } from "@oh-my-pi/pi-tui";
+                import { visibleWidth } from "@oh-my-pi/pi-tui/text/width";
+                const checkTui = () => {
+                  const node = jsx("text", { text: "界" });
+                  return isUiNode(node) && visibleWidth(node.props().text) === 2;
+                };
+              '' else ''
+                import { assembleYieldResult } from "@oh-my-pi/pi-tui/tools/task-yield-assembly";
+                const checkTui = () => typeof assembleYieldResult === "function";
+              ''}
               export default function(pi) {
-                if (AgentRegistry !== pi.pi.AgentRegistry || typeof resetYieldTurnState !== "function" ||
-                    typeof assembleYieldResult !== "function") throw new Error("OMP extension SDK mismatch");
+                if (AgentRegistry !== pi.pi.AgentRegistry || typeof resetYieldTurnState !== "function" || !checkTui())
+                  throw new Error("OMP extension SDK mismatch");
                 writeFileSync(process.env.OMP_NIX_PROBE, "ok\n");
               }
               EOF

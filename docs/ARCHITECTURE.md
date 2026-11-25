@@ -162,6 +162,10 @@ The locks record upstream release metadata, native Bun hashes and sizes, and
 production package integrity hashes. The smoke checks exercise configuration,
 profiles, symlinked extensions with nested SDK imports, shared host registry
 identity, TUI rendering, Python, extraction, and browser launch.
+Both native and Nix probes select the TUI API of the release being checked:
+they retain the legacy component/yield checks before 19.2.0 and exercise the
+reactive TUI from 19.2.0 onward. Published older Lite pins remain testable;
+the probes do not change or rewrite user extensions.
 Package-provided licenses and third-party notices remain in the complete payload;
 the release LICENSE, pinned Bun license, launcher notices, and Portable component
 notices are also included.
